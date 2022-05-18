@@ -3,7 +3,8 @@ import numpy as np
 from screeninfo import get_monitors
 from pypylon import pylon
 from time import sleep, localtime, strftime
-from multiprocessing import Process, Queue
+from multiprocessing import Process
+from util import Queue
 
 from tray2 import KK_Keras
 from relay import Relay
@@ -42,12 +43,10 @@ class dp_window:
         menu_x = round(self.x_max*0.027)
         self.menu_x = round(self.x_max*0.027)
         numbering_y = round(self.y_max*0.188)
-        setting_y = round(self.y_max*0.4054)
+        self.setting_y = round(self.y_max*0.4054)
         decide_y = round(self.y_max*0.645)
-        mode_y = round(self.y_max*0.779)
+        self.mode_y = round(self.y_max*0.779)
         set_x_size, set_y_size = round(self.x_max*0.313), round(self.y_max*0.205)
-        total_x, total_y = round(self.x_max*0.200), round(self.y_max*0.255)
-        reject_x, reject_y = round(self.x_max*0.200), round(self.y_max*0.343)
         limit_x, limit_y = round(self.x_max*0.200), round(self.y_max*0.480)
 
         """ 배경에 들어갈 이미지 정의 """
@@ -61,10 +60,10 @@ class dp_window:
         start_mode = cv2.resize(cv2.imread('./display/Main.png'), (self.x_max, self.y_max))
         self.result = start_mode.copy()
 
-        self.result = self.merge_image(self.result, self.mode2, menu_x, mode_y)
+        self.result = self.merge_image(self.result, self.mode2, menu_x, self.mode_y)
         self.result = self.merge_image(self.result, self.img, round(self.x_max*0.37), round(self.y_max*0.188))
-        self.result = self.merge_image(self.result, self.setting, menu_x, setting_y)
-        self.result = self.merge_image(self.result, self.numbering, menu_x, numbering_y)
+        self.result = self.merge_image(self.result, self.setting, menu_x, self.setting_y)
+        #self.result = self.merge_image(self.result, self.numbering, menu_x, numbering_y)
 
         self.load_network() #self.VAE로 할당됨
         self.load_camera(camera_num=camera_num)
@@ -78,8 +77,13 @@ class dp_window:
             elif self.decide_ng == 1:
                 self.result = self.merge_image(self.result, self.img_reject, menu_x, decide_y)
 
-            """ 텍스트 삽입문 들어가야할곳 - total&reject 숫자가 겹쳐지기 때문에 구문 수정이 필요함 """
-            self.dp_count(self.numbering, menu_x, numbering_y, self.total_num, self.reject_num, total_x, total_y, reject_x, reject_y)
+            """ 전체 검사 수량 및 리젝트 수량 화면 기록 """
+            numbering = self.numbering.copy() # 197x601
+            cv2.putText(numbering, str(self.total_num), (300, 70), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 7)
+            cv2.putText(numbering, str(self.reject_num), (300, 150), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 7)
+            self.result = self.merge_image(self.result, numbering, menu_x, numbering_y)
+            
+            """ 리젝트 감도 화면 표기 """
             cv2.putText(self.result, str(round(self.reject_limit * 1000)), (limit_x, limit_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 7)
 
             cv2.namedWindow(window_info, flags=cv2.WINDOW_AUTOSIZE)
@@ -94,20 +98,15 @@ class dp_window:
                 if self.operate_mode == 1:
                     self.operate = 'off'
                     self.operate_mode = 0
-                    self.img = camera_image
+                    self.img = cv2.resize(camera_image, (self.cam_x_size, self.cam_y_size))
 
             if cv2.waitKey(1) & 0xFF == 27 or self.pg_exit == 1:
                 self.queue.put(None)
                 break
 
         self.cameras.StopGrabbing()
-        cv2.destoryAllWindows()
-
-    def dp_count(self, background, back_x, back_y, total, reject, t_x, t_y, r_x, r_j):
-        self.merge_image(self.result, background, back_x, back_y)
-        cv2.putText(self.result, str(total), (t_x, t_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 7)
-        cv2.putText(self.result, str(reject), (r_x, r_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 7)
-        
+        cv2.destroyAllWindows()
+                
     def screen_frame(self):
         screen = get_monitors()[0]
         print(screen)
@@ -126,10 +125,10 @@ class dp_window:
 
             if y_ratio >= 0.54 and y_ratio <= 0.57: # 리젝트 감도 조정 버튼
                if x_ratio >= 0.045 and x_ratio <= 0.166:
-                   self.result = self.merge_image(self.result, self.setting, self.menu_x, setting_y)
+                   self.result = self.merge_image(self.result, self.setting, self.menu_x, self.setting_y)
                    self.reject_limit += 0.001
                if x_ratio >= 0.187 and x_ratio <= 0.308:
-                   self.result = self.merge_image(self.result, self.setting, self.menu_x, setting_y)
+                   self.result = self.merge_image(self.result, self.setting, self.menu_x, self.setting_y)
                    self.reject_limit -= 0.001
 
             if x_ratio >= 0.282 and x_ratio <= 0.308: # total&reject 초기화 버튼
@@ -141,10 +140,10 @@ class dp_window:
                 if y_ratio >= 0.783 and y_ratio <= 0.907:
                     if self.operate == 'off':
                         self.operate = 'on'
-                        self.result = self.merge_image(self.result, self.mode, self.menu_x, mode_y) #2485 1552
+                        self.result = self.merge_image(self.result, self.mode, self.menu_x, self.mode_y) #2485 1552
                     else:
                         self.operate_mode = 1
-                        self.result = self.merge_image(self.result, self.mode2, self.menu_x, mode_y)
+                        self.result = self.merge_image(self.result, self.mode2, self.menu_x, self.mode_y)
 
             if x_ratio >= 0.908 and x_ratio <= 0.956 : # 종료 버튼
                if y_ratio >= 0.026 and y_ratio <= 0.110 :
@@ -213,7 +212,7 @@ class dp_window:
             detect_mae_loss = np.mean(np.power(detect - k_resized, 2), axis=1)
             detect_mae_loss = detect_mae_loss.reshape((-1))
 
-            print("Detected : {} // Limit : {}".format(round(detect_mae_loss.max(),2), self.reject_limit)) # 검사추정치 출력하기
+            print("Detected : {} // Limit : {}".format(round(detect_mae_loss.max(),1), self.reject_limit)) # 검사추정치 출력하기
 
             self.decide_ng = 0
             if detect_mae_loss.max() > self.reject_limit:
@@ -253,22 +252,21 @@ class Reject_sys:
         self.relay.state(0, False)
         self.relay.h.close()
         
-        self.relay_runtime = 0.05
-        self.relay = 'off'
+        self.relay_runtime = 0.1
+        self.relay_A = 'off'
         self.relay_time = time.time()
-
         self.queue = Q
         self.Time_out = 0.001
 
         """ 제품 한개가 지나가는데 필요한 시간 """
-        self.reject_need_time = int(0.135 / self.Time_out)
+        self.reject_need_time = int(0.125 / self.Time_out)
         
         """ 리젝트까지 필요한 시간 """
         self.standby_time = int(0.001 / self.Time_out)
 
-        self.T = [0] * (self.reject_need_time + self.standby_time)
+        self.T_A = [0] * (self.reject_need_time + self.standby_time)
 
-        print(self.T)
+        print(self.T_A)
 
         self.get_Queue()
 
@@ -282,29 +280,30 @@ class Reject_sys:
             time.sleep(self.Time_out)
             
             for i in range(self.queue.qsize()):
-                answer = self.queue.get()
+                answer_ = self.queue.get()
                 if i == 0:
                     answer = answer_
                     
             if answer is not None:
+                #print("Now answer is {}".format(answer[0]))
                 if answer[0] == 'Reject':
-                    if self.relay =='off':
-                        self.T = self.time_traveler('A', 0, 1)
+                    if self.relay_A =='off':
+                        self.T_A = self.time_traveler('A', 0, 1)
                         print('Reject Signal put...')
-                        prtin("*"*20)
+                        print("*"*20)
                         ng_question = 'ng'
                     initial = 0
             
             self.relay_off_cal_time()
             
             if ng_question == 'ok':
-                self.T = self.time_traveler('A', 0, 0)
+                self.T_A = self.time_traveler('A', 0, 0)
                 initial += 1
                 
             if initial == 100:
                 initial = 0
             
-            if self.T[len(self.T) - 1] == 1:
+            if self.T_A[len(self.T_A) - 1] == 1:
                 self.state(1)
                 
             if answer is None:
@@ -312,30 +311,33 @@ class Reject_sys:
 
     def time_traveler(self, line, location, passs):
         if line == 'A':
-            temp = self.T
+            temp = self.T_A
         temp = temp[:-1]
         temp.insert(location, passs)
         return temp
 
     def relay_off_cal_time(self):
-        if self.relay == 'on':
+        """ 릴레이가 켜져있다면, 일정 시간 이상 초과 되었을 시 릴레이 끄기 """
+        if self.relay_A == 'on':
             if time.time() - self.relay_time > self.relay_runtime:
                 self.relay = Relay(idVendor=0x16c0, idProduct=0x05df)
                 self.relay.state(1, False)
-                self.relay = 'off'
+                self.relay_A = 'off'
                 self.relay.h.close()
 
     def state(self, i):
-        if i == 1 and self.relay == 'off':
+        """ i 에 해당하는 릴레이가 꺼져 있다면, 가동하고 현재의 시간을 저장 """
+        if i == 1 and self.relay_A == 'off':
             self.relay = Relay(idVendor=0x16c0, idProduct=0x05df)
             self.relay.state(1, True)
-            self.relay = 'on'
+            self.relay_A = 'on'
             self.relay_time = time.time()
             self.relay.h.close()
 
 def main():
 
-    queueA, queueR = Queue(), Queue()
+    queueA = Queue()
+    queueR = Queue()
     image = cv2.imread('./display/Loading.png')
 
     A = Process(target=dp_window, args=(image, queueA,))
@@ -350,7 +352,7 @@ def main():
         for i in range(queueA.qsize()):
             answer = queueA.get()
             if i == 0:
-                print(queueA.qsize())
+                #print(queueA.qsize())
                 if answer is not None:
                     queueR.put(answer)
                     
