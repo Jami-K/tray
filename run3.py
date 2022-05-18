@@ -1,4 +1,4 @@
-import cv2, os, time
+import cv2, os, hid, time
 import numpy as np
 from screeninfo import get_monitors
 from pypylon import pylon
@@ -6,13 +6,14 @@ from time import sleep, localtime, strftime
 from multiprocessing import Process, Queue
 
 from tray2 import KK_Keras
+from relay import Relay
 
 #Version Checking: 2022.04.08 Modified on Apple Mini
 
 class dp_window:
     def __init__(self, camera_image, Q):
 
-        #Network 변수 설정
+        """ "Network 변수 설정 """
         self.queue = Q
         self.error_data = []
         camera_num = 0
@@ -20,9 +21,9 @@ class dp_window:
         self.reject_limit = 0.015
         self.IMG_SIZE1, self.IMG_SIZE2 = 128, 128
         self.img_save_path = 'Reject_Images'
-        self.camera_setting = './camera_setting.pfs'
+        self.camera_setting = './camera_settingN.pfs'
 
-        #화면 출력 변수 설정
+        """ 화면 출력 변수 설정 """
         self.pg_exit = 0
         self.total_num = 0
         self.reject_num = 0
@@ -33,12 +34,13 @@ class dp_window:
         self.y_max = round(self.x_max * 0.5)
         window_info = str("Nongshim Noksan Deep Learning Program : ESC = Quit")
 
-        # 이미지 크기/위치 정의
+        """ 이미지 크기/위치 정의 """
         self.cam_x_size = round(self.x_max*0.587)
         self.cam_y_size = round(self.y_max*0.717)
         bar_x_size = round(self.x_max * 0.31)
         bar_y_size = round(self.y_max * 0.13)
         menu_x = round(self.x_max*0.027)
+        self.menu_x = round(self.x_max*0.027)
         numbering_y = round(self.y_max*0.188)
         setting_y = round(self.y_max*0.4054)
         decide_y = round(self.y_max*0.645)
@@ -48,7 +50,7 @@ class dp_window:
         reject_x, reject_y = round(self.x_max*0.200), round(self.y_max*0.343)
         limit_x, limit_y = round(self.x_max*0.200), round(self.y_max*0.480)
 
-        # 배경에 들어갈 이미지 정의
+        """ 배경에 들어갈 이미지 정의 """
         self.img = cv2.resize(camera_image, (self.cam_x_size, self.cam_y_size))
         self.img_ok = cv2.resize(cv2.imread('./display/OK.png'), (bar_x_size, bar_y_size))
         self.img_reject = cv2.resize(cv2.imread('./display/Reject.png'), (bar_x_size, bar_y_size))
@@ -76,10 +78,8 @@ class dp_window:
             elif self.decide_ng == 1:
                 self.result = self.merge_image(self.result, self.img_reject, menu_x, decide_y)
 
-            #텍스트 삽입문 들어가야할곳 - total&reject 숫자가 겹쳐지기 때문에 구문 수정이 필요함
-            self.merge_image(self.result, self.numbering, menu_x, numbering_y)
-            cv2.putText(self.result, str(self.total_num), (total_x, total_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 7)
-            cv2.putText(self.result, str(self.reject_num), (reject_x, reject_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 7)
+            """ 텍스트 삽입문 들어가야할곳 - total&reject 숫자가 겹쳐지기 때문에 구문 수정이 필요함 """
+            self.dp_count(self.numbering, menu_x, numbering_y, self.total_num, self.reject_num, total_x, total_y, reject_x, reject_y)
             cv2.putText(self.result, str(round(self.reject_limit * 1000)), (limit_x, limit_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 7)
 
             cv2.namedWindow(window_info, flags=cv2.WINDOW_AUTOSIZE)
@@ -97,9 +97,17 @@ class dp_window:
                     self.img = camera_image
 
             if cv2.waitKey(1) & 0xFF == 27 or self.pg_exit == 1:
-                self.queue.put('q')
+                self.queue.put(None)
                 break
 
+        self.cameras.StopGrabbing()
+        cv2.destoryAllWindows()
+
+    def dp_count(self, background, back_x, back_y, total, reject, t_x, t_y, r_x, r_j):
+        self.merge_image(self.result, background, back_x, back_y)
+        cv2.putText(self.result, str(total), (t_x, t_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 7)
+        cv2.putText(self.result, str(reject), (r_x, r_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,0), 7)
+        
     def screen_frame(self):
         screen = get_monitors()[0]
         print(screen)
@@ -118,10 +126,10 @@ class dp_window:
 
             if y_ratio >= 0.54 and y_ratio <= 0.57: # 리젝트 감도 조정 버튼
                if x_ratio >= 0.045 and x_ratio <= 0.166:
-                   self.result = self.merge_image(self.result, self.setting, menu_x, setting_y)
+                   self.result = self.merge_image(self.result, self.setting, self.menu_x, setting_y)
                    self.reject_limit += 0.001
                if x_ratio >= 0.187 and x_ratio <= 0.308:
-                   self.result = self.merge_image(self.result, self.setting, menu_x, setting_y)
+                   self.result = self.merge_image(self.result, self.setting, self.menu_x, setting_y)
                    self.reject_limit -= 0.001
 
             if x_ratio >= 0.282 and x_ratio <= 0.308: # total&reject 초기화 버튼
@@ -133,10 +141,10 @@ class dp_window:
                 if y_ratio >= 0.783 and y_ratio <= 0.907:
                     if self.operate == 'off':
                         self.operate = 'on'
-                        self.result = self.merge_image(self.result, self.mode, menu_x, mode_y) #2485 1552
+                        self.result = self.merge_image(self.result, self.mode, self.menu_x, mode_y) #2485 1552
                     else:
                         self.operate_mode = 1
-                        self.result = self.merge_image(self.result, self.mode2, menu_x, mode_y)
+                        self.result = self.merge_image(self.result, self.mode2, self.menu_x, mode_y)
 
             if x_ratio >= 0.908 and x_ratio <= 0.956 : # 종료 버튼
                if y_ratio >= 0.026 and y_ratio <= 0.110 :
@@ -209,11 +217,14 @@ class dp_window:
 
             self.decide_ng = 0
             if detect_mae_loss.max() > self.reject_limit:
-                #self.save_file(self.img)
+                #self.save_img(self.img)
                 self.reject_num += 1
                 self.decide_ng = 1
-                error_data = ['a-reject']
-                self.queue.put(error_data)
+                error_data = ['Reject']
+                self.put_queue(error_data)
+
+    def put_queue(self, error_data):
+        self.queue.put(error_data)
 
     def make_dir(self):
         dir_path = self.img_save_path
@@ -231,150 +242,121 @@ class dp_window:
             print("\nThe New Folder For saving Rejected image is Maked...\n")
         return dirname_reject
 
-    def save_file(self, img):
+    def save_img(self, img):
        dirname_reject = self.make_dir()
        name = str(strftime("%m-%d-%H-%M-%S", localtime())) + ".jpg"
        cv2.imwrite(os.path.join(dirname_reject, name), img)
 
-class Relay:
-    def __init__(self, idVendor=0x16c0, idProduct=0x05df):
-        self.h = hid.device()
-        self.h.open(idVendor, idProduct)
-        self.h.set_nonblocking(1)
-
-    def get_switch_statuses_from_report(self, report):
-        # Grab the 8th number, which is a integer
-        switch_statuses = report[7]
-        # Convert the integer to a binary, and the binary to a list.
-        switch_statuses = [int(x) for x in list('{0:08b}'.format(switch_statuses))]
-        # Reverse the list, since the status reads from right to left
-        switch_statuses.reverse()
-        # The switch_statuses now looks something like this:
-        # [1, 1, 0, 0, 0, 0, 0, 0]
-        # Switch 1 and 2 (index 0 and 1 respectively) are on, the rest are off.
-        return switch_statuses
-
-    def send_feature_report(self, message):
-        self.h.send_feature_report(message)
-
-    def get_feature_report(self):
-        # If 0 is passed as the feature, then 0 is prepended to the report. However,
-        # if 1 is passed, the number is not added and only 8 chars are returned.
-        feature = 1
-        # This is the length of the report.
-        length = 8
-        return self.h.get_feature_report(feature, length)
-
-    def state(self, relay, on=None):
-        # Getter
-        if on == None:
-            if relay == 0:
-                report = self.get_feature_report()
-                switch_statuses = self.get_switch_statuses_from_report(report)
-                status = []
-                for s in switch_statuses:
-                    status.append(bool(s))
-            else:
-                report = self.get_feature_report()
-                switch_statuses = self.get_switch_statuses_from_report(report)
-                status = bool(switch_statuses[relay - 1])
-            return status
-
-        # Setter
-        else:
-            if relay == 0:
-                if on:
-                    message = [0xFE]
-                else:
-                    message = [0xFC]
-            else:
-                if on:
-                    message = [0xFF, relay]
-                else:
-                    message = [0xFD, relay]
-            self.send_feature_report(message)
-
 class Reject_sys:
-    def __init__(self, Q, A_wait, A_run):
+    def __init__(self, Q):
         self.relay = Relay(idVendor=0x16c0, idProduct=0x05df)
         self.relay.state(0, False)
+        self.relay.h.close()
+        
+        self.relay_runtime = 0.05
+        self.relay = 'off'
+        self.relay_time = time.time()
 
-        self.relay_status_A = 'off'
         self.queue = Q
-        self.Time_out = 0.01
+        self.Time_out = 0.001
 
-        self.reject_need_time_A = int(A_wait / self.Time_out)
+        """ 제품 한개가 지나가는데 필요한 시간 """
+        self.reject_need_time = int(0.135 / self.Time_out)
+        
+        """ 리젝트까지 필요한 시간 """
+        self.standby_time = int(0.001 / self.Time_out)
 
-        standby_time_A = int(A_run / self.Time_out)
+        self.T = [0] * (self.reject_need_time + self.standby_time)
 
-        self.T_A = [0] * (self.reject_need_time_A + standby_time_A)
-
-        print(len(self.T_A), self.reject_need_time_A)
-        print(len(self.T_A[self.reject_need_time_A:]))
+        print(self.T)
 
         self.get_Queue()
 
-    def get_Queue(self):
-        while True:
-            answer = ''
-            try:
-                answer = self.queue.get(timeout=self.Time_out)
-                if answer == 'a-reject':
-                    self.T_A = self.time_traveler('A', 0, 1)
-                elif answer == 'q':
-                    self.relay.state(0, False)
-                    break
-            except:
-                self.T_A = self.time_traveler('A', 0, 0)
 
-            self.action()
+    def get_Queue(self):
+        initial = 0
+        while True:
+            answer = [[0]]
+            ng_question = 'ok'
+            
+            time.sleep(self.Time_out)
+            
+            for i in range(self.queue.qsize()):
+                answer = self.queue.get()
+                if i == 0:
+                    answer = answer_
+                    
+            if answer is not None:
+                if answer[0] == 'Reject':
+                    if self.relay =='off':
+                        self.T = self.time_traveler('A', 0, 1)
+                        print('Reject Signal put...')
+                        prtin("*"*20)
+                        ng_question = 'ng'
+                    initial = 0
+            
+            self.relay_off_cal_time()
+            
+            if ng_question == 'ok':
+                self.T = self.time_traveler('A', 0, 0)
+                initial += 1
+                
+            if initial == 100:
+                initial = 0
+            
+            if self.T[len(self.T) - 1] == 1:
+                self.state(1)
+                
+            if answer is None:
+                break
 
     def time_traveler(self, line, location, passs):
         if line == 'A':
-            temp = self.T_A
+            temp = self.T
         temp = temp[:-1]
         temp.insert(location, passs)
         return temp
 
-    def state_on(self, i):
-        if i == 1:
+    def relay_off_cal_time(self):
+        if self.relay == 'on':
+            if time.time() - self.relay_time > self.relay_runtime:
+                self.relay = Relay(idVendor=0x16c0, idProduct=0x05df)
+                self.relay.state(1, False)
+                self.relay = 'off'
+                self.relay.h.close()
+
+    def state(self, i):
+        if i == 1 and self.relay == 'off':
+            self.relay = Relay(idVendor=0x16c0, idProduct=0x05df)
             self.relay.state(1, True)
-            self.relay_status_A = 'on'
-
-    def state_off(self, i):
-        if i == 1:
-            self.relay.state(1, False)
-            self.relay_status_A = 'off'
-
-    def action(self):
-        if 1 in self.T_A[self.reject_need_time_A:] and self.relay_status_A == 'off':
-            self.state_on(1)
-        if 1 not in self.T_A and self.relay_status_A == 'on':
-            self.state_off(1)
+            self.relay = 'on'
+            self.relay_time = time.time()
+            self.relay.h.close()
 
 def main():
 
     queueA, queueR = Queue(), Queue()
     image = cv2.imread('./display/Loading.png')
-    R_wait = 0.2
-    R_run = 0.02
 
-    A = Process(target=dp_window, args=(image, queueA,)) #3840 1920
-    R = Process(target=Reject_sys, args=(queueR,R_wait,R_run,))
+    A = Process(target=dp_window, args=(image, queueA,))
+    R = Process(target=Reject_sys, args=(queueR,))
 
     A.start()
-    #R.start()
+    R.start()
 
     while True:
         answer = ''
-        try:
-            answer = queueA.get(timeout=0.00001)
-            if answer is not None:
-                queueR.put(answer)
-        except:
-            pass
-
-    queueA.put(None)
+        
+        for i in range(queueA.qsize()):
+            answer = queueA.get()
+            if i == 0:
+                print(queueA.qsize())
+                if answer is not None:
+                    queueR.put(answer)
+                    
+        if answer is None:
+            queueR.put(None)
+            break
 
 
 if __name__ == "__main__":
