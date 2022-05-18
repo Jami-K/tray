@@ -8,7 +8,7 @@ from multiprocessing import Process, Queue
 from tray2 import KK_Keras
 from relay import Relay
 
-#Version Checking: 2022.04.08 Modified on Apple Mini
+#Version Checking: 2022.05.18 Modified on Apple Mini
 
 class dp_window:
     def __init__(self, camera_image, Q):
