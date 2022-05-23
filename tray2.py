@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt #visible output module
 from glob import glob
 import cv2
 import numpy as np
+import pandas as pd
 
 class KK_Keras:
    def __init__(self, IMG_SIZE, latent_dim):
@@ -153,11 +154,15 @@ if __name__ == "__main__":
 
    x_train_pred = od.predict(x_train)
    train_mae_loss = np.mean(np.power(x_train_pred - x_train, 2), axis=1)
+   Vusulaize_T = pd.DataFrame({'Train_mae':train_mae_loss})
+   
+   print("File name : {}".format(Img_path))
+   print(Visualize_T.describe())
+   
    threshold = np.max(train_mae_loss) #0.24836096
    print("Reconstruction error threshold: ", threshold)
    
    print('==================================================')
-   print("    Anomaly Detection - Model Study completed.")
    print('==================================================')
 
    #od.load_model('./tray.h5')
@@ -168,37 +173,19 @@ if __name__ == "__main__":
    
    x_test_pred = od.predict(z_val)
    test_mae_loss = np.mean(np.power(x_test_pred - z_val, 2), axis=1)
+   
+   Visualize = pd.DataFrame({'Test_mae':test_mae_loss})
+   print("File name : {}".format(Y_path))
+   print(Visualize.describe())
+   
    test_mae_loss = test_mae_loss.reshape((-1))
 
    print(test_mae_loss)
    print(test_mae_loss.max())
 
-   if test_mae_loss.max() < threshold:
-      print("\nIt is Normal data\n")
-   else:
-      print("\nIt is Anomal data\n")
-
-
-   plt.plot(test_mae_loss)
-   plt.axhline(threshold, 0, len(test_mae_loss), color='gray', linestyle='solid', linewidth=2)
+   plt.title("Graph")
+   plt.hist(train_mae_loss, color='blue', histtype='step', label='train')
+   plt.hist(test_mae_loss, color='red', histtype='step', label='test')
+   plt.xlabel('mae')
+   plt.legend()
    plt.show()
-
-
-'''
-   decoded_imgs = od.predict(z_val)
-
-   n = 1
-   plt.figure(figsize=(10,2), dpi=100)
-   for i in range(n):
-      ax=plt.subplot(2, n, i+1)
-      plt.imshow(z_val[i].reshape(IMG_SIZE1,IMG_SIZE2,3))
-      plt.gray()
-      ax.set_axis_off()
-
-      ax = plt.subplot(2, n, i+1 + n)
-      plt.imshow(decoded_imgs[i].reshape(IMG_SIZE1,IMG_SIZE2,3))
-      plt.gray()
-      ax.set_axis_off()
-      
-   plt.show()
-'''
