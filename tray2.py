@@ -130,7 +130,7 @@ def img_to_np(fpaths, IMG_SIZE1, IMG_SIZE2):
 if __name__ == "__main__":
 
    IMG_SIZE1, IMG_SIZE2 = 128, 128
-   latent_size = 27
+   latent_size = 32 #27
    epochs = 10000 # Replay the Learning Process
    #batch_size = 32
 
