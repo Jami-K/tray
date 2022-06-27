@@ -9,7 +9,7 @@ from util import Queue
 from tray2 import KK_Keras
 from relay import Relay
 
-#Version Checking: 2022.05.18 Modified on Apple Mini
+#Version Checking: 2022.06.27 Modified on Apple Mini
 
 class dp_window:
     def __init__(self, camera_image, Q):
@@ -22,24 +22,21 @@ class dp_window:
         self.reject_limit = 0.015
         self.IMG_SIZE1, self.IMG_SIZE2 = 128, 128
         self.img_save_path = 'Reject_Images'
-        self.camera_setting = './camera_settingN.pfs'
+        self.camera_setting = './camera_setting.pfs'
 
         """ 화면 출력 변수 설정 """
         self.pg_exit = 0
         self.total_num = 0
         self.reject_num = 0
-        self.operate = 'off'
-        self.operate_mode = 0
-        self.decide_ng = 0
+        self.operate = 'off' #'on' 'off'
+        self.decide_ng = 'ok' #'ok' 'ng'
         self.x_max, self.y_max = self.screen_frame()
         self.y_max = round(self.x_max * 0.5)
         window_info = str("Nongshim Noksan Deep Learning Program : ESC = Quit")
 
         """ 이미지 크기/위치 정의 """
-        self.cam_x_size = round(self.x_max*0.587)
-        self.cam_y_size = round(self.y_max*0.717)
-        bar_x_size = round(self.x_max * 0.31)
-        bar_y_size = round(self.y_max * 0.13)
+        self.cam_x_size, self.cam_y_size = round(self.x_max*0.587), round(self.y_max*0.717)
+        bar_x_size, bar_y_size = round(self.x_max * 0.31), round(self.y_max * 0.13)
         menu_x = round(self.x_max*0.027)
         self.menu_x = round(self.x_max*0.027)
         numbering_y = round(self.y_max*0.188)
@@ -66,15 +63,14 @@ class dp_window:
         #self.result = self.merge_image(self.result, self.numbering, menu_x, numbering_y)
 
         self.load_network() #self.VAE로 할당됨
-        self.load_camera(camera_num=camera_num)
         print("Keras Network Model Ready!!")
 
         while True:
             self.result = self.merge_image(self.result, self.img, round(self.x_max * 0.37), round(self.y_max * 0.188))
 
-            if self.decide_ng == 0:
+            if self.decide_ng == 'ok':
                 self.result = self.merge_image(self.result, self.img_ok, menu_x, decide_y)
-            elif self.decide_ng == 1:
+            elif self.decide_ng == 'ng':
                 self.result = self.merge_image(self.result, self.img_reject, menu_x, decide_y)
 
             """ 전체 검사 수량 및 리젝트 수량 화면 기록 """
@@ -95,16 +91,15 @@ class dp_window:
             if self.operate == 'on':
                 self.get_predict()
                 self.img = cv2.resize(self.img, (self.cam_x_size, self.cam_y_size))
-                if self.operate_mode == 1:
-                    self.operate = 'off'
-                    self.operate_mode = 0
-                    self.img = cv2.resize(camera_image, (self.cam_x_size, self.cam_y_size))
+
+            if self.operate == 'off':
+                self.img = cv2.resize(camera_image, (self.cam_x_size, self.cam_y_size))
 
             if cv2.waitKey(1) & 0xFF == 27 or self.pg_exit == 1:
                 self.queue.put(None)
                 break
 
-        self.cameras.StopGrabbing()
+        self.camera.Close()
         cv2.destroyAllWindows()
                 
     def screen_frame(self):
@@ -141,8 +136,8 @@ class dp_window:
                     if self.operate == 'off':
                         self.operate = 'on'
                         self.result = self.merge_image(self.result, self.mode, self.menu_x, self.mode_y) #2485 1552
-                    else:
-                        self.operate_mode = 1
+                    elif self.operate =='on':
+                        self.operate = 'off'
                         self.result = self.merge_image(self.result, self.mode2, self.menu_x, self.mode_y)
 
             if x_ratio >= 0.908 and x_ratio <= 0.956 : # 종료 버튼
@@ -174,60 +169,58 @@ class dp_window:
         result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
         return result
 
-    def load_camera(self, camera_num):     #카메라 설정 불러오기
-        maxCamerasToUse = 1
-        tlFactory = pylon.TlFactory.GetInstance()
-        devices = tlFactory.EnumerateDevices()
-
-        self.cameras = pylon.InstantCameraArray(min(len(devices), maxCamerasToUse))
-        for i, self.cam in enumerate(self.cameras):
-            self.cam.Attach(tlFactory.CreateDevice(devices[camera_num]))
-        self.cameras.Open()
-        pylon.FeaturePersistence.Load(self.camera_setting, self.cam.GetNodeMap(), True)
-        self.cameras.Close()
-        self.cameras.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
-        self.converter = pylon.ImageFormatConverter()
-        self.converter.OutputPixelFormat = pylon.PixelType_BGR8packed
-        self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
-
     def load_network(self):    #신경망 구조 불러오기
        self.VAE = KK_Keras((self.IMG_SIZE1, self.IMG_SIZE2, 3), 32)
 
-    def get_predict(self):    #카메라로부터 이미지를 불러와 예측값을 불러옴
-        self.grabResult = self.cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+    def get_predict(self):    #카메라로부터 이미지를 불러와 예측값을 불러옴     
+        self.cam_status = 'ready'
+        if self.operate == 'on':
+            self.cam_status = 'start'
+            self.camera.Open()
+            pylon.FeaturePersistence.Load(self.camera_setting, self.cam.GetNodeMap(), True)
+            self.converter = pylon.ImageFormatConverter()
+            self.converter.OutputPixelFormat = pylon.PixelType_BGR8packed
+            self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
+        elif self.operate == 'off':
+            self.cam_status = 'ready'
+            self.camera.Close()
+        
+        if self.cam_status == 'start':
+            ready = True
+            try:
+                self.grabResult = self.cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+                image_raw = self.converter.Convert(self.grabResult)
+                image = image_raw.GetArray()
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                self.img = image                
+                self.total_num += 1
+            except:
+                ready = False
+            
+            if ready:
+                k_img = self.img.astype(np.float32) / 255.
+                k_resized = cv2.resize(k_img, (self.IMG_SIZE1, self.IMG_SIZE2), interpolation=cv2.INTER_LINEAR)
+                k_reshape = k_resized.reshape((1,) + (self.IMG_SIZE1, self.IMG_SIZE2) + (3,))
 
-        if self.grabResult.GrabSucceeded():
-            image_raw = self.converter.Convert(self.grabResult)
-            image = image_raw.GetArray()
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            self.img = image
-            self.total_num += 1
+                detect = self.VAE.predict(k_reshape)
+                detect_mae_loss = np.mean(np.power(detect - k_resized, 2), axis=1)
+                detect_mae_loss = detect_mae_loss.reshape((-1))
 
-            k_img = self.img.astype(np.float32) / 255.
-            k_resized = cv2.resize(k_img, (self.IMG_SIZE1, self.IMG_SIZE2), interpolation=cv2.INTER_LINEAR)
-            k_reshape = k_resized.reshape((1,) + (self.IMG_SIZE1, self.IMG_SIZE2) + (3,))
-
-            detect = self.VAE.predict(k_reshape)
-            detect_mae_loss = np.mean(np.power(detect - k_resized, 2), axis=1)
-            detect_mae_loss = detect_mae_loss.reshape((-1))
-
-            print("Detected : {} // Limit : {}".format(round(detect_mae_loss.max(),1), self.reject_limit)) # 검사추정치 출력하기
-
-            self.decide_ng = 0
-            if detect_mae_loss.max() > self.reject_limit:
-                #self.save_img(self.img)
-                self.reject_num += 1
-                self.decide_ng = 1
-                error_data = ['Reject']
-                self.put_queue(error_data)
+                print("Detected : {} // Limit : {}".format(round(detect_mae_loss.max(),0), self.reject_limit)) # 검사추정치 출력하기
+                
+                self.decide_ng = 'ok'
+                if detect_mae_loss.max() > self.reject_limit:
+                    self.save_img(self.img)
+                    self.reject_num += 1
+                    self.decide_ng = 'ng'
+                    error_data = ['Reject']
+                    self.put_queue(error_data)
 
     def put_queue(self, error_data):
         self.queue.put(error_data)
 
     def make_dir(self):
         dir_path = self.img_save_path
-
         if os.path.exists(dir_path + "/" + str(strftime("%Y-%m-%d", localtime())) + "/" + str(strftime("%H", localtime()))):
             dirname_reject = dir_path + "/" + str(strftime("%Y-%m-%d", localtime())) + "/" + str(strftime("%H", localtime()))
         else:
@@ -258,18 +251,15 @@ class Reject_sys:
         self.queue = Q
         self.Time_out = 0.001
 
-        """ 제품 한개가 지나가는데 필요한 시간 """
-        self.reject_need_time = int(0.125 / self.Time_out)
+        """ 1개 지나가는데 필요한 시간 """
+        self.reject_need_time = int(0.050 / self.Time_out)
         
         """ 리젝트까지 필요한 시간 """
-        self.standby_time = int(0.001 / self.Time_out)
-
+        self.standby_time = int(0.0001 / self.Time_out)
         self.T_A = [0] * (self.reject_need_time + self.standby_time)
 
         print(self.T_A)
-
         self.get_Queue()
-
 
     def get_Queue(self):
         initial = 0
@@ -335,7 +325,6 @@ class Reject_sys:
             self.relay.h.close()
 
 def main():
-
     queueA = Queue()
     queueR = Queue()
     image = cv2.imread('./display/Loading.png')
@@ -345,10 +334,8 @@ def main():
 
     A.start()
     R.start()
-
     while True:
-        answer = ''
-        
+        answer = ''     
         for i in range(queueA.qsize()):
             answer = queueA.get()
             if i == 0:
@@ -359,7 +346,6 @@ def main():
         if answer is None:
             queueR.put(None)
             break
-
 
 if __name__ == "__main__":
     main()
