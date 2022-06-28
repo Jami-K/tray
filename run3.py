@@ -9,7 +9,7 @@ from util import Queue
 from tray2 import KK_Keras
 from relay import Relay
 
-#Version Checking: 2022.06.27 Modified on Apple Mini
+#Version Checking: 2022.06.28 Modified on Apple Mini
 
 class dp_window:
     def __init__(self, camera_image, Q):
@@ -62,6 +62,7 @@ class dp_window:
         self.result = self.merge_image(self.result, self.setting, menu_x, self.setting_y)
         #self.result = self.merge_image(self.result, self.numbering, menu_x, numbering_y)
 
+        self.load_camera(camera_num=0)
         self.load_network() #self.VAE로 할당됨
         print("Keras Network Model Ready!!")
 
@@ -99,7 +100,7 @@ class dp_window:
                 self.queue.put(None)
                 break
 
-        self.camera.Close()
+        self.cameras.Close()
         cv2.destroyAllWindows()
                 
     def screen_frame(self):
@@ -171,19 +172,30 @@ class dp_window:
 
     def load_network(self):    #신경망 구조 불러오기
        self.VAE = KK_Keras((self.IMG_SIZE1, self.IMG_SIZE2, 3), 32)
+       #self.VAE.load_model('./tray.h5')
+
+    def load_camera(self, camera_num):
+        maxCamerasToUse = 1
+        tlFactory = pylon.TlFactory.GetInstance()
+        devices = tlFactory.EnumerateDevices()
+        
+        self.cameras = pylon.InstantCameraArray(min(len(devices), maxCamerasToUse))
+        for i, self.cam in enumerate(self.cameras):
+            self.cam.Attach(tlFactory.CreateDevice(devices[camera_num]))
 
     def get_predict(self):    #카메라로부터 이미지를 불러와 예측값을 불러옴     
         self.cam_status = 'ready'
         if self.operate == 'on':
             self.cam_status = 'start'
-            self.camera.Open()
+            self.cameras.Open()
             pylon.FeaturePersistence.Load(self.camera_setting, self.cam.GetNodeMap(), True)
+            self.cameras.StartGrabbing(pylon.Grabstrategy_LatestImageOnly)
             self.converter = pylon.ImageFormatConverter()
             self.converter.OutputPixelFormat = pylon.PixelType_BGR8packed
             self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
         elif self.operate == 'off':
             self.cam_status = 'ready'
-            self.camera.Close()
+            self.cameras.Close()
         
         if self.cam_status == 'start':
             ready = True
