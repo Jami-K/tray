@@ -29,6 +29,7 @@ class dp_window:
         self.total_num = 0
         self.reject_num = 0
         self.operate = 'off' #'on' 'off'
+        self.cam_status = 'ready' #'start' 'ready'
         self.decide_ng = 'ok' #'ok' 'ng'
         self.x_max, self.y_max = self.screen_frame()
         self.y_max = round(self.x_max * 0.5)
@@ -67,8 +68,14 @@ class dp_window:
         print("Keras Network Model Ready!!")
 
         while True:
-            self.result = self.merge_image(self.result, self.img, round(self.x_max * 0.37), round(self.y_max * 0.188))
-
+            """ 작동 여부 확인하여 카메라 이미지 할당 """
+            if self.operate == 'on':
+                self.get_predict()
+                self.img = cv2.resize(self.img, (self.cam_x_size, self.cam_y_size))
+            if self.operate =='off':
+                self.img = cv2.resize(camera_image, (self.cam_x_size, self.cam_y_size))
+                
+            """ 리젝트 여부 확인하여 화면 표기 """
             if self.decide_ng == 'ok':
                 self.result = self.merge_image(self.result, self.img_ok, menu_x, decide_y)
             elif self.decide_ng == 'ng':
@@ -82,19 +89,13 @@ class dp_window:
             
             """ 리젝트 감도 화면 표기 """
             cv2.putText(self.result, str(round(self.reject_limit * 1000)), (limit_x, limit_y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 7)
-
+            
+            self.result = self.merge_image(self.result, self.img, round(self.x_max * 0.37), round(self.y_max * 0.188))
             cv2.namedWindow(window_info, flags=cv2.WINDOW_AUTOSIZE)
             cv2.imshow(window_info, self.result)
             #cv2.moveWindow(window_info, 0, 0)
 
             cv2.setMouseCallback(window_info, self.mouseEvent)
-
-            if self.operate == 'on':
-                self.get_predict()
-                self.img = cv2.resize(self.img, (self.cam_x_size, self.cam_y_size))
-
-            if self.operate == 'off':
-                self.img = cv2.resize(camera_image, (self.cam_x_size, self.cam_y_size))
 
             if cv2.waitKey(1) & 0xFF == 27 or self.pg_exit == 1:
                 self.queue.put(None)
@@ -184,8 +185,7 @@ class dp_window:
             self.cam.Attach(tlFactory.CreateDevice(devices[camera_num]))
 
     def get_predict(self):    #카메라로부터 이미지를 불러와 예측값을 불러옴     
-        self.cam_status = 'ready'
-        if self.operate == 'on':
+        if self.operate == 'on' and self.cam_status ='ready':
             self.cam_status = 'start'
             self.cameras.Open()
             pylon.FeaturePersistence.Load(self.camera_setting, self.cam.GetNodeMap(), True)
