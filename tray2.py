@@ -13,22 +13,39 @@ import matplotlib.pyplot as plt #visible output module
 from glob import glob
 import cv2
 import numpy as np
+import tensorflow as tf
 import pandas as pd
 
 class KK_Keras:
    def __init__(self, IMG_SIZE, latent_dim):
 
+     gpus = tf.config.experimental.list_physical_devices('GPU')
+     if gpus:
+      try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+      except RuntimeError as e:
+       print(e)
+
+     strategy = tf.distribute.MirroredStrategy() #devices=["/gpu:0", "/gpu:1"]
+     with strategy.scope():
+
+
       inp_data = Input(IMG_SIZE)
 
       x = self.EncoderUnit(inp_data, 3)
-      x = self.EncoderUnit(x, 3, Residual=True)
+      x = self.EncoderUnit(x, 3, Residual=False)
       x = self.EncoderUnit(x, 16)
       x = self.EncoderUnit(x, 16, Pool=True, Batch_N=True, Residual=True)
       x = self.EncoderUnit(x, 32)
       x = self.EncoderUnit(x, 32, Pool=True, Batch_N=True, Residual=True)
       x = self.EncoderUnit(x, 64)
       x = self.EncoderUnit(x, 64, Pool=True, Batch_N=True, Residual=True)
-      x = self.EncoderUnit(x, 128, Pool=True)
+      x = self.EncoderUnit(x, 128)
+      x = self.EncoderUnit(x, 128, Pool=True, Batch_N=True, Residual=True)
+      x = self.EncoderUnit(x, 256, Pool=True)
       x = Flatten()(x)
       x = Dense(16*16, activation='tanh')(x)
 
@@ -37,10 +54,12 @@ class KK_Keras:
       self.enco_Data = Lambda(self.sampling, output_shape=(latent_dim,))([self.z_mean, self.z_sig])
 
       latent_inp = Input((latent_dim))
-      x = Dense(16*16, activation='tanh')(latent_inp)
+      x = Dense(16*16, activation='relu')(latent_inp)
       x = Reshape((16, 16, 1))(x)
+      x = self.DecoderUnit(x, 256)
+      x = self.DecoderUnit(x, 256, Residual=True)
       x = self.DecoderUnit(x, 128)
-      x = self.DecoderUnit(x, 128, Residual=True)
+      x = self.DecoderUnit(x, 128, Sample=True, Residual=True)
       x = self.DecoderUnit(x, 64)
       x = self.DecoderUnit(x, 64, Sample=True, Residual=True)
       x = self.DecoderUnit(x, 32)
@@ -55,8 +74,7 @@ class KK_Keras:
       self.decoder = Model(latent_inp, decoded, name='Decoder')
       self.vae = Model(inp_data, self.decoder(self.encoder(inp_data)[2]), name='VAE')
 
-      #self.vae = multi_gpu_model(self.vae, gpus=4)
-      self.vae.compile(optimizer='adadelta', loss='binary_crossentropy')
+      self.vae.compile(optimizer='Adam', loss='binary_crossentropy')
       #self.encoder.summary()
       #self.decoder.summary()
       self.vae.summary()
@@ -91,11 +109,11 @@ class KK_Keras:
       epsilon = K.random_normal(shape=(batch, dim))
       return z_mean + z_sig * epsilon
 
-   def FIT(self, images, epochs, validation_split=0.2):
+   def FIT(self, images, epochs, batch_size, validation_split=0.2):
 
       print("\n========== Model Study Starts ==========\n")
-      self.vae.fit(images, images, validation_split=validation_split, epochs=epochs,
-         callbacks=[EarlyStopping(patience=15), ModelCheckpoint('./tray.h5', save_best_only=True)])
+      self.vae.fit(images, images, batch_size=batch_size, validation_split=validation_split, epochs=epochs,
+         callbacks=[EarlyStopping(patience=30), ModelCheckpoint('./tray.h5', save_best_only=True)])
 
    def predict(self, image):
       return self.vae.predict(image)
@@ -115,11 +133,14 @@ def img_to_np(fpaths, IMG_SIZE1, IMG_SIZE2):
    img_array = []
    for i in fpaths:
       try:
-         image = cv2.imread(i).astype(np.float32) / 255.
+         image = cv2.imread(i)
          img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-         img_resized = cv2.resize(img_rgb, (IMG_SIZE1, IMG_SIZE2), interpolation=cv2.INTER_LINEAR)
+         img_blur = cv2.GaussianBlur(img_rgb, ksize=(3,3), sigmaX=0)
+         img_canny = cv2.Canny(img_blur, 200, 200)
+         img_rgb2 = cv2.cvtColor(img_canny, cv2.COLOR_GRAY2RGB)
+         img_resized = cv2.resize(img_rgb2, (IMG_SIZE1, IMG_SIZE2), interpolation=cv2.INTER_LINEAR)
          #img_reshape = img_resized.reshape((1,) + img_resized.shape + (3,))
-         img_array.append(np.asarray(img_resized))
+         img_array.append(img_resized/255)
       except:
          continue
 
@@ -129,10 +150,10 @@ def img_to_np(fpaths, IMG_SIZE1, IMG_SIZE2):
 
 if __name__ == "__main__":
 
-   IMG_SIZE1, IMG_SIZE2 = 128, 128
-   latent_size = 32 #27
-   epochs = 10000 # Replay the Learning Process
-   #batch_size = 32
+   IMG_SIZE1, IMG_SIZE2 = 256, 256
+   latent_size = 32
+   epochs = 1000 # Replay the Learning Process
+   batch_size = 32
 
    od = KK_Keras((IMG_SIZE1, IMG_SIZE2, 3), latent_size)
 
@@ -143,10 +164,12 @@ if __name__ == "__main__":
    x_val = img_to_np(val_img_list, IMG_SIZE1, IMG_SIZE2)
    database = img_to_np(Img_path, IMG_SIZE1, IMG_SIZE2)
 
-   #grph = od.FIT(database, epochs=epochs)
-   od.load_model('./tray.h5')	
-   #od.save_model('./tray.h5')
-  
+   grph = od.FIT(database, epochs=epochs, batch_size=batch_size)
+   #od.load_model('./tray.h5')	
+   od.save_model('./tray.h5')
+
+   print('==================================================')
+
    #plt.plot(grph.history["loss"], label = "Training Loss")
    #plt.plot(grph.history["val_loss"], label = "Validation Loss")
    #plt.legend()
@@ -154,37 +177,27 @@ if __name__ == "__main__":
 
    x_train_pred = od.predict(x_train)
    train_mae_loss = np.mean(np.power(x_train_pred - x_train, 2), axis=1)
-   Vusulaize_T = pd.DataFrame({'Train_mae':train_mae_loss})
-   
-   print("File name : {}".format(Img_path))
-   print(Visualize_T.describe())
-   
    threshold = np.max(train_mae_loss) #0.24836096
    print("Reconstruction error threshold: ", threshold)
    
    print('==================================================')
-   print('==================================================')
 
-   #od.load_model('./tray.h5')
+   v_img = cv2.imread('./validation/11.jpg') #1 2 11 12 13 14 
+   v_blur = cv2.GaussianBlur(v_img, ksize=(3,3), sigmaX=0)
+   v_canny = cv2.Canny(v_blur, 200, 200)
+   v_resized = cv2.resize(v_canny, (IMG_SIZE1, IMG_SIZE2), interpolation=cv2.INTER_LINEAR)
+   v_reshape = v_resized.reshape((1,) + (IMG_SIZE1, IMG_SIZE2) + (3,))
 
-   Y_path = glob('./validation/dust.jpg') #blackdot dust hair normal 
-   z_val = img_to_np(Y_path, IMG_SIZE1, IMG_SIZE2)
-
-   
-   x_test_pred = od.predict(z_val)
-   test_mae_loss = np.mean(np.power(x_test_pred - z_val, 2), axis=1)
-   
-   Visualize = pd.DataFrame({'Test_mae':test_mae_loss})
-   print("File name : {}".format(Y_path))
-   print(Visualize.describe())
+   x_test_pred = od.predict(v_reshape)
+   test_mae_loss = np.mean(np.power(x_test_pred - v_reshape, 2), axis=1)
    
    test_mae_loss = test_mae_loss.reshape((-1))
 
-   print(test_mae_loss)
+   #print(test_mae_loss)
    print(test_mae_loss.max())
 
    plt.title("Graph")
-   plt.hist(train_mae_loss, color='blue', histtype='step', label='train')
+   #plt.hist(train_mae_loss, color='blue', histtype='step', label='train')
    plt.hist(test_mae_loss, color='red', histtype='step', label='test')
    plt.xlabel('mae')
    plt.legend()
