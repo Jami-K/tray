@@ -20,24 +20,24 @@ class KF_Keras:
    def make_network(self, IMG_SIZE1, IMG_SIZE2):
       model = Sequential()
       
-      model.add(Conv2D(32, (2,2), input_shape=(IMG_SIZE1, IMG_SIZE2, 1), activation='relu'))
-      model.add(MaxPool2D(pool_size=(2,2)))
+      model.add(Conv2D(32, (2,2), input_shape=(IMG_SIZE1, IMG_SIZE2, 3), activation='relu'))
+      model.add(MaxPooling2D(pool_size=(2,2)))
       
       model.add(Conv2D(64, (2,2), activation='relu'))
       model.add(Conv2D(64, (2,2), activation='relu'))
-      model.add(MaxPool2D(pool_size=(2,2)))
+      model.add(MaxPooling2D(pool_size=(2,2)))
       model.add(Dropout(0.5))
       
       model.add(Conv2D(128, (2,2), activation='relu'))
       model.add(Conv2D(128, (2,2), activation='relu'))
       model.add(Conv2D(128, (2,2), activation='relu'))
-      model.add(MaxPool2D(pool_size=(2,2)))
+      model.add(MaxPooling2D(pool_size=(2,2)))
       model.add(Dropout(0.5))
       
       model.add(Conv2D(256, (2,2), activation='relu'))
       model.add(Conv2D(256, (2,2), activation='relu'))
       model.add(Conv2D(256, (2,2), activation='relu'))
-      model.add(MaxPool2D(pool_size=(2,2)))
+      model.add(MaxPooling2D(pool_size=(2,2)))
       model.add(Dropout(0.5))
       
       model.add(Flatten())
@@ -65,18 +65,18 @@ def Img_Prepare(image):
    img_blur = cv2.GaussianBlur(img_rgb, ksize=(3,3), sigmaX=0)
    img_canny = cv2.Canny(img_blur, 200, 200)
    img_rgb2 = cv2.cvtColor(img_canny, cv2.COLOR_GRAY2RGB)
-   images = cv2.resize(img_rgb2, (256, 256), interpolation=cv2.INTER_LINEAR)
+   images = cv2.resize(img_rgb2, (200, 200), interpolation=cv2.INTER_LINEAR)
 
    return images
 
 
 if __name__ == "__main__":
 
-   IMG_SIZE1, IMG_SIZE2 = 256, 256
+   IMG_SIZE1, IMG_SIZE2 = 200, 200
    
    model = Return_model_T(IMG_SIZE1, IMG_SIZE2)
    
-   model.compile(optimize='adadelta', loss='binary_crossentropy', metrics=['acc'])
+   model.compile(optimizer='Adam', loss='binary_crossentropy', metrics=['acc'])
    
    train_datagen = ImageDataGenerator(preprocessing_function=Img_Prepare,
                                     rescale = None,
@@ -92,20 +92,20 @@ if __name__ == "__main__":
    training_set = train_datagen.flow_from_directory('Database/Sub',
                                                    target_size=(IMG_SIZE1, IMG_SIZE2),
                                                    color_mode='rgb',
-                                                   batch_size=256, class_mode='input')
+                                                   batch_size=256, class_mode='categorical')
 
    valid_set = train_datagen.flow_from_directory('Database/SubSub',
                                                    target_size=(IMG_SIZE1, IMG_SIZE2),
                                                    color_mode='rgb',
-                                                   batch_size=32, class_mode='input')
+                                                   batch_size=32, class_mode='categorical')
 
    es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=15)
    mc = ModelCheckpoint('trayF.h5', monitor='val_loss', mode='min', save_best_only=True)
 
-   model.fit_generator(training_set, epochs=1000, validation_data=valid_set, callbacks=[es,mc])
+   #model.fit_generator(training_set, epochs=1000, validation_data=valid_set, callbacks=[es,mc])
    
-   model.save_weights('./trayF.h5')
-   #model.load_weights('./trayF.h5')
+   #model.save_weights('./trayF.h5')
+   model.load_weights('./trayF.h5')
 
    v_img = cv2.imread('./validation/11.jpg') #1 2 11 12
    v_prepare = Img_Prepare(v_img)
@@ -114,7 +114,7 @@ if __name__ == "__main__":
 
    cv2.imshow('Test', v_resized)
    print(v_resized.shape)
-   output_T = model.predict(v_resized)
+   output_T = model.predict(v_reshape)
    print(output_T)
 
    n_img = cv2.imread('./validation/1.jpg') #1 2 11 12
@@ -124,7 +124,7 @@ if __name__ == "__main__":
 
    cv2.imshow('Valid', n_resized)
    print(n_resized.shape)
-   output_N = model.predict(n_resized)
+   output_N = model.predict(n_reshape)
    print(output_N)
 
    m_img = cv2.imread('./validation/80.jpg') #1 2 11 12
@@ -134,5 +134,7 @@ if __name__ == "__main__":
 
    cv2.imshow('Valid2', m_resized)
    print(m_resized.shape)
-   output_M = model.predict(m_resized)
+   output_M = model.predict(m_reshape)
    print(output_N)
+
+   cv2.waitKey(0)
