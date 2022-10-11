@@ -57,51 +57,43 @@ class LMS :
         return od
 
     def return_model(self):
+        print("OK")
         return self.model
 
-
-def Return_model_L():
-    model = LMS()
-    return model.return_model()
-
-def img_to_np(image_directory):
-    img_list = os.listdir(image_directory)
-    dataset=[]
-    for i, image_name in enumerate(img_list):
-        if (image_name.split('.')[1] == 'jpg'):
-            image = cv2.imread(image_directory + '/' + image_name)
-            image = cv2.cvtColor(image, cv2.BGR2RGB)
-            image = cv2.resize(image, (64, 64))
-            dataset.append(np.array(image))
-        dataset = np.array(dataset)
-    return dataset
-
-
 if __name__ == "__main__":
-    image_directory = 'Database/train/'
+    od = LMS()
+    print(od.return_model())
+'''    image_directory = 'Database/train/'
     SIZE = 64
     dataset = []  #Many ways to handle data, you can use pandas. Here, we are using a list format.
 
-#    good_images = os.listdir(image_directory + 'ok/')
-#    for i, image_name in enumerate(good_images):
-#        if (image_name.split('.')[1] == 'jpg'):
-#            image = cv2.imread(image_directory + 'ok/' + image_name)
-#            image = Image.fromarray(image, 'RGB')
-#            image = image.resize((SIZE, SIZE))
-#            dataset.append(np.array(image))
-#        dataset = np.array(dataset)
+    good_images = os.listdir(image_directory + 'ok/')
+    for i, image_name in enumerate(good_images):
+        if (image_name.split('.')[1] == 'jpg'):
+            image = cv2.imread(image_directory + 'ok/' + image_name)
+            image = Image.fromarray(image, 'RGB')
+            image = image.resize((SIZE, SIZE))
+            print(np.array(image).astype)
+            dataset.append(np.array(image))
+        dataset = np.array(dataset)
 
-    #train = dataset[0:300]
-    #test = dataset[300:374]
+    train = dataset[0:300]
+    test = dataset[300:374]
 
-    #train = train.astype('float32') / 255.
-    #test = test.astype('float32') / 255.
+    train = train.astype('float32') / 255.
+    test = test.astype('float32') / 255.
 
     #Let us also load bad images to verify our trained model.
-    #bad_images = os.listdir(image_directory + 'reject')
-    #bad_dataset=img_to_np(bad_images)
-
-    #bad_dataset = bad_dataset.astype('float32') / 255.
+    bad_images = os.listdir(image_directory + 'reject')
+    bad_dataset=[]
+    for i, image_name in enumerate(bad_images):
+        if (image_name.split('.')[1] == 'jpg'):
+            image = cv2.imread(image_directory + 'reject/' + image_name)
+            image = Image.fromarray(image, 'RGB')
+            image = image.resize((SIZE, SIZE))
+            bad_dataset.append(np.array(image))
+    bad_dataset = np.array(bad_dataset)
+    bad_dataset = bad_dataset.astype('float32') / 255.
 
     # train
     #from alibi_detect.models.tensorflow.losses import elbo #evidence lower bound loss
@@ -118,45 +110,45 @@ if __name__ == "__main__":
     #instances considered to be outliers in a sample of the dataset.
     #percentage of X considered to be normal based on the outlier score.
     #Here, we set it to 99%
-    #od.infer_threshold(test, outlier_type='instance', threshold_perc=99.0)
-    #print("Current threshold value is: ", od.threshold)
+    od.infer_threshold(test, outlier_type='instance', threshold_perc=99.0)
+    print("Current threshold value is: ", od.threshold)
 
     # save the trained outlier detector
     #As mentioned in their documentation, save and load is having issues in python3.6 but works fine in 3.7
     #from alibi_detect.utils import save_detector, load_detector  #If this does not work, try the next line
     #save_detector(od, "tray_od_20epochs.h5")
-    od = load_detector("tray_od_20epochs.h5")
+    od = load_detector(filepath)
 
     #Test our model on a bad image
-    #img_num = 9
-    #test_bad_image = bad_dataset[img_num].reshape(1, 64, 64, 3)
-    #plt.imshow(test_bad_image[0])
+    img_num = 9
+    test_bad_image = bad_dataset[img_num].reshape(1, 64, 64, 3)
+    plt.imshow(test_bad_image[0])
 
-    #test_bad_image_recon = od.vae(test_bad_image)
-    #test_bad_image_recon = test_bad_image_recon.numpy()
-    #plt.imshow(test_bad_image_recon[0])
+    test_bad_image_recon = od.vae(test_bad_image)
+    test_bad_image_recon = test_bad_image_recon.numpy()
+    plt.imshow(test_bad_image_recon[0])
 
-    #test_bad_image_predict = od.predict(test_bad_image) #Returns a dictionary of data and metadata
+    test_bad_image_predict = od.predict(test_bad_image) #Returns a dictionary of data and metadata
 
     #Data dictionary contains the instance_score, feature_score, and whether it is an outlier or not.
     #Let u look at the values under the 'data' key in our output dictionary
-    #bad_image_instance_score = test_bad_image_predict['data']['instance_score'][0]
-    #print("The instance score is:", bad_image_instance_score)
+    bad_image_instance_score = test_bad_image_predict['data']['instance_score'][0]
+    print("The instance score is:", bad_image_instance_score)
 
-    #bad_image_feature_score = test_bad_image_predict['data']['feature_score'][0]
-    #plt.imshow(bad_image_feature_score[:,:,0])
-    #print("Is this image an outlier (0 for NO and 1 for YES)?", test_bad_image_predict['data']['is_outlier'][0])
+    bad_image_feature_score = test_bad_image_predict['data']['feature_score'][0]
+    plt.imshow(bad_image_feature_score[:,:,0])
+    print("Is this image an outlier (0 for NO and 1 for YES)?", test_bad_image_predict['data']['is_outlier'][0])
 
     A = []
     img = cv2.imread('./1.jpg')
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_resize = cv2.resize(img_rgb, (SIZE, SIZE))
-    A = img_resize.reshape((1,) + img_resize.shape)
+    A.append(np.array(img_resize))
     A = A.astype('float32') / 255.
 
     A_predict = od.predict(A)
-    A_instance_score = A_predict['data']['instance_score'][0] #specific score?
-    A_feature_score = A_predict['data']['feature_score'][0] #whole score?
+    A_instance_score = A_predict['data']['instance_score'][0]
+    A_feature_score = A_predict['data']['feature_score'][0]
     print("Instance is {} / Feature is {}".format(A_instance_score, A_feature_score))
     print("Is A an outlier (0 for NO and 1 for YES)?", A_predict['data']['is_outlier'][0])
 
@@ -164,4 +156,4 @@ if __name__ == "__main__":
     #You can also manually define the threshold based on your specific use case.
     od.threshold = 0.002
     print("Current threshld value is: ", od.threshold)
-
+'''
