@@ -1,15 +1,37 @@
-from model import LMS, Return_model_L
-from alibi_detect.utils.saving import load_detector
-
-from relay import Relay
-from pypylon import pylon
-from multiprocessing import Process, Queue
 import tensorflow as tf
 import cv2, os, hid, time
 import numpy as np
 
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  # 텐서플로가 첫 번째 GPU에 1GB 메모리만 할당하도록 제한
+  try:
+    tf.config.experimental.set_virtual_device_configuration(gpus[0],
+        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=10000)])
+    tf.config.experimental.set_virtual_device_configuration(gpus[1],
+        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=10000)])
+    tf.config.experimental.set_virtual_device_configuration(gpus[2],
+        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=10000)])
+    tf.config.experimental.set_virtual_device_configuration(gpus[3],
+        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=10000)])
+  except RuntimeError as e:
+    # 프로그램 시작시에 가상 장치가 설정되어야만 합니다
+    print(e)
+
+from tensorflow.keras.layers import Conv2D, Conv2DTranspose, Dense, Reshape, InputLayer, Flatten
+from alibi_detect.od import OutlierVAE
+from alibi_detect.utils.visualize import plot_instance_score, plot_feature_outlier_image
+from alibi_detect.utils.saving import save_detector, load_detector
+
+from relay import Relay
+from pypylon import pylon
+from multiprocessing import Process, Queue
+
+
 class Main:
     def __init__(self, window_name, queue):
+        self.converter = pylon.ImageFormatConverter()
+        self.config = tf.compat.v1.ConfigProto()
         self.IMG_SIZE1 = 64
         self.IMG_SIZE2 = 64
         self.queue = queue
@@ -21,12 +43,54 @@ class Main:
                          'camera_id': 0, 'IMG_SIZE1': self.IMG_SIZE1, 'IMG_SIZE2': self.IMG_SIZE2}
 
         print("Alibi Detect is ready...1")
-        self.od = Return_model_L()
-        self.od = load_detector("tray_od_20epochs.h5")
+        self.od = self.make_network()
         print("Alibi Detect is ready...2")
+        #self.od = load_detector("tray_od_20epochs.h5")
+        print("Alibi Detect is ready...3")
 
         self.load_camera()
         self.run()
+
+    def make_network(self):
+        encoding_dim = 1024  # Dimension of the bottleneck encoder vector.
+        dense_dim = [8, 8, 512]  # Dimension of the last conv. output. This is used to work our way back in the decoder.
+
+        encoder_net = tf.keras.Sequential(
+            [
+                InputLayer(input_shape=(64, 64, 3)),
+                Conv2D(64, 4, strides=2, padding='same', activation=tf.nn.relu),
+                Conv2D(128, 4, strides=2, padding='same', activation=tf.nn.relu),
+                Conv2D(512, 4, strides=2, padding='same', activation=tf.nn.relu),
+                Flatten(),
+                Dense(encoding_dim, )
+            ])
+        #print(encoder_net.summary())
+
+        decoder_net = tf.keras.Sequential(
+            [
+                InputLayer(input_shape=(encoding_dim,)),
+                Dense(np.prod(dense_dim)),
+                Reshape(target_shape=dense_dim),
+                Conv2DTranspose(256, 4, strides=2, padding='same', activation=tf.nn.relu),
+                Conv2DTranspose(64, 4, strides=2, padding='same', activation=tf.nn.relu),
+                Conv2DTranspose(3, 4, strides=2, padding='same', activation='sigmoid')
+            ])
+        #print(decoder_net.summary())
+
+        #######################################################################
+        # Define and train the outlier detector.
+
+        latent_dim = 1024  # (Same as encoding dim. )
+
+        # initialize outlier detector
+        od = OutlierVAE(threshold=.015,  # threshold for outlier score above which the element is flagged as an outlier.
+                        score_type='mse',  # use MSE of reconstruction error for outlier detection
+                        encoder_net=encoder_net,  # can also pass VAE model instead
+                        decoder_net=decoder_net,  # of separate encoder and decoder
+                        latent_dim=latent_dim,
+                        samples=4)
+        return od
+
 
     def load_camera(self):
         maxCamerasToUse = 1
