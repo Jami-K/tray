@@ -217,18 +217,23 @@ if __name__ == "__main__":
     print("Alibi-detect Model Loaded...")
 
     while cameras.IsGrabbing():
-        grabResult = cameras.RetrieveResult(50000, pylon.TimeoutHandling_ThrowException)
-        image_raw = converter.Convert(grabResult)
-        img_raw = image_raw.GetArray()
-        img_crop = img_raw[0:494, 0:494]
-        img = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
-        img_resize = cv2.resize(img, (64, 64), interpolation=cv2.INTER_LINEAR)
-        A = img_resize.reshape((1,) + img_resize.shape)
-        A = A.astype('float32') / 255.
-        output = model.predict(A)
-        answer = output['data']['instance_score'][0]
-        is_outlier = output['data']['is_outlier'][0]
-        print("{} ..... / {}".format(answer,is_outlier))
+        try :
+            grabResult = cameras.RetrieveResult(50000, pylon.TimeoutHandling_ThrowException)
+            image_raw = converter.Convert(grabResult)
+            img_raw = image_raw.GetArray()
+            img_crop = img_raw[0:494, 0:494]
+            img = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
+            img_resize = cv2.resize(img, (64, 64), interpolation=cv2.INTER_LINEAR)
+            A = img_resize.reshape((1,) + img_resize.shape)
+            A = A.astype('float32') / 255.
+            output = model.predict(A)
+            answer = output['data']['instance_score'][0]
+            is_outlier = output['data']['is_outlier'][0]
+            total_num += 1
+            if is_outlier == 1:
+                Outlier_num += 1
+            print("{}....{} / Outlier: {} / total: {}".format(answer,is_outlier, Outlier_num, total_num))
+
 
         cv2.imshow('example', img)
 
