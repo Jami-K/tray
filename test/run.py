@@ -211,6 +211,7 @@ if __name__ == "__main__":
     if not os.path.exists('Reject_img'):
         os.mkdir('Reject_img')
 
+    total_num, Outlier_num, answer, is_outlier = 0, 0, 0, 0
     L = LMS()
     model = L.return_model()
     model = load_detector("tray_od_20epochs.h5")
