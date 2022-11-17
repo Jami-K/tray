@@ -232,14 +232,27 @@ if __name__ == "__main__":
             total_num += 1
             if is_outlier == 1:
                 Outlier_num += 1
-            print("{}....{} / Outlier: {} / total: {}".format(answer,is_outlier, Outlier_num, total_num))
+        except:
+            pass
+        
+        print("{}....{} / Outlier: {} / total: {}".format(answer,is_outlier, Outlier_num, total_num))
 
+        try:
+            cv2.imshow('example', img)
+        except:
+            print("No Image is Captured....")
+            pass
 
-        cv2.imshow('example', img)
+        k = cv2.waitKey(1) & 0xFF
 
-        k = cv2.waitKey(1)
-
-        if k & 0xFF == 27:
+        if k == ord('r'):
+          print("\nTotal : {} ... / Outlier : {} ...\n".format(toal_num, Outlier_num))
+          print("Reset Completed...")
+          print("=====================\n")
+          total_num = 0
+          Outlier_num = 0
+        
+        if k == 27:
             break
      
     cameras.Close()
