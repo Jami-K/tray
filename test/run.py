@@ -246,14 +246,14 @@ if __name__ == "__main__":
 
         k = cv2.waitKey(1) & 0xFF
 
-        if k == ord('r'):
+        if k == 114: #lowercase r
           print("\nTotal : {} ... / Outlier : {} ...\n".format(toal_num, Outlier_num))
           print("Reset Completed...")
           print("=====================\n")
           total_num = 0
           Outlier_num = 0
         
-        if k == 27:
+        if k == 27: #esc
             break
      
     cameras.Close()
