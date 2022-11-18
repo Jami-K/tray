@@ -50,7 +50,6 @@ class Cam:
         self.cameras.StopGrabbing()
         print(f'{self.camera_num} Camera is Power-OFF...')
 
-
     def load_camera(self):
         maxCamerasToUse = 1
         tlFactory = pylon.TlFactory.GetInstance()
@@ -87,7 +86,6 @@ class Cam:
             self.Img_Q.put("None")
 
 
-
 if __name__ == "__main__":
     # 만약 save_foler가 없으면 폴더 만들기
     if not os.path.exists('Reject_img'):
@@ -117,6 +115,8 @@ if __name__ == "__main__":
     LINE_A.start()
     LINE_B.start()
 
+    total_A, total_B, outlier_A, outlier_B = 0, 0, 0, 0
+    
     while True:
         img_A = ''
         img_B = ''
@@ -125,12 +125,14 @@ if __name__ == "__main__":
             img_A = Img_A.get(timeout=0.000001)
             print('A Image Loaded...')
             if img_A is not None:
+                total_A += 1
                 img = cv2.resize(img_A, (64,64), interpolation=cv2.INTER_LINEAR)
                 A = img_resize.reshape((1,) + img_resize.shape)
                 A = A.astype('float32') / 255.
                 output = model.predict(A)
                 answer_A = output['data']['is_outlier'][0]
                 if answer_A = 1:
+                    outlier_A += 1
                     Relay_A.state(0, on=True)
                     sleep(0.01)
                     Relay_A.state(0, on=False)        
@@ -142,12 +144,14 @@ if __name__ == "__main__":
             img_B = Img_B.get(timeout=0.000001)
             print('B Image Loaded...')
             if img_B is not None:
+                total_B += 1
                 img = cv2.resize(img_B, (64,64), interpolation=cv2.INTER_LINEAR)
                 B = img_resize.reshape((1,) + img_resize.shape)
                 B = B.astype('float32') / 255.
                 output = model.predict(B)
                 answer_B = output['data']['is_outlier'][0]
                 if answer_B = 1:
+                    outlier_B += 1
                     Relay_B.state(0, on=True)
                     sleep(0.01)
                     Relay_B.state(0, on=False)
@@ -155,9 +159,18 @@ if __name__ == "__main__":
             pass
 
         cv2.imshow('A', Img_A)
+        cv2.moveWindow('A', 300, 500)
         cv2.imshow('B', Img_B)
+        cv2.moveWindow('B', 1180, 500)
 
         k = cv2.waitKey(1) & 0xFF
+
+        if k == 114: #lowercase r
+          print(f'[A-side] Total : {toal_A}... / Reject : {outlier_A}')
+          print(f'[B-side] Total : {toal_B}... / Reject : {outlier_B}')
+          print('====================')
+          print{'\n Counter Reset!...')
+          total_A, total_B, outlier_A, outlier_B = 0, 0, 0, 0
 
         if k == 27: #esc
             Break_A.put('1')
