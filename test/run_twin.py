@@ -29,27 +29,33 @@ from model import LMS
 from pypylon import pylon
 from multiprocessing import Process, Queue
 
+class Tray:
+    def __init__(self, line, camera_name, Relay_address):
 
-class Cam:
-    def __init__(self, camera_num, camera_setting, Img_Q, Break_Q):
-        self.camera_num = camera_num
-        self.camera_setting = camera_setting
-        self.Img_Q = Img_Q
-        self.Break_Q = Break_Q
-
-        self.load_camera()
-        print(f'{self.camera_num} Camera is Ready!...')
-
-        while True:
-            self.get_img()
-            self.put_Queue()
-
-            if self.Break_Q = '1':
-                break
-
-        self.cameras.StopGrabbing()
-        print(f'{self.camera_num} Camera is Power-OFF...')
-
+      self.camera_name = camera_name
+      self.Relay_address = Relay_address
+      self.Relay = Relay(path=self.Relay_address)
+      
+      self.total_num = 0
+      self.reject_num = 0
+      
+      self.load_camera()
+      self.load_model()
+      self.get_img()
+      self.predict()
+      
+      num_display = 'Total : ' + str(self.total_num) + ' / ' + ' Reject : ' + str(self.reject_num)
+      self.img = cv2.putText(self.img, num_display, (0, 0), cv2.FONT_HERSHEY_PLAIN, 2, (0,0,0), 1)
+      cv2.imshow(line, self.img)
+      if line == 'A':
+          cv2.moveWindow(line, 300, 500)
+      else:
+          cv2.moveWindow(line, 1100, 500)
+                         
+      k = cv2.waitKey(0)
+ 
+# 종료 Queue 설정하기, 
+      
     def load_camera(self):
         maxCamerasToUse = 1
         tlFactory = pylon.TlFactory.GetInstance()
@@ -61,13 +67,19 @@ class Cam:
             self.cam.Attach(tlFactory.CreateDevice(devices[0]))
 
         self.cameras.Open()
-        pylon.FeaturePersistence.Load(self.camera_setting, cam.GetNodeMap())
+        pylon.FeaturePersistence.Load('./camera_settingN.pfs', self.cam.GetNodeMap())
         self.cameras.StartGrabbing(pylon.GrabStrategy_LatestImageOnly) 
         self.converter = pylon.ImageFormatConverter()
         self.converter.OutputPixelFormat = pylon.PixelType_BGR8packed
         self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
 
-    def get_img(self):
+    def load_model(self):
+        L = LMS()
+        self.model = L.return_model()
+        self.model = load_detector("tray_od_20epochs.h5")
+        print("Alibi-detect Model Loaded...")
+              
+    def get_img(self):    
         try:
             sefl.grabResult = self.cameras.RetrieveResult(500, pylon.TimeoutHandling_ThrowException)
             image_raw = self.converter.Convert(self.grabResult)
@@ -76,36 +88,32 @@ class Cam:
             image = cv2.cvtColor(image_crop, cv2.COLOR_BGR2RGB)
             img_resize = cv2.resize(image, (64, 64), interpolation=cv2.INTER_LINEAR)
             self.img = img_resize
+            self.total_num += 1
         except:
             pass
+          
+    def predict(self):
+        if self.img is not None:
+            img_resize = cv2.resize(self.img, (64,64), interpolation=cv2.INTER_LINEAR)
+            I = img_resize.reshape((1,) + img_resize.shape)
+            I = I.astype('float32') / 255.
+            output = self.model.predict(I)
+            answer = output['data']['is_outlier'][0]
+            if answer == 1:
+               self.reject_num += 1
+               Relay.state(0, on=True)
+               sleep(0.01)
+               Relay.state(0, on=False)
 
-    def put_Queue(self):
-        try:
-            self.Img_Q.put(self.img)
-        except:
-            self.Img_Q.put("None")
-
-
+            
 if __name__ == "__main__":
     # 만약 save_foler가 없으면 폴더 만들기
     if not os.path.exists('Reject_img'):
         os.mkdir('Reject_img')
 
-    total_num, Outlier_num, answer, is_outlier = 0, 0, 0, 0
-    L = LMS()
-    model = L.return_model()
-    model = load_detector("tray_od_20epochs.h5")
-    print("Alibi-detect Model Loaded...")
-
-    Img_A, Break_A = Queue(), Queue()
-    Img_B, Break_B = Queue(), Queue()
-
-    LINE_A = Process(target=Cam, args=('0', Img_A, Break_A,))
-    LINE_B = Process(target=Cam, args=('1', Img_B, Break_B,))
-
     dic = []
     for i in hid.enumerate():
-        if i['produce_string'] == 'USBRelay2':
+        if i['product_string'] == 'USBRelay2':
             dic.append(i['path'])
     print(dic)
 
@@ -115,7 +123,6 @@ if __name__ == "__main__":
     LINE_A.start()
     LINE_B.start()
 
-    total_A, total_B, outlier_A, outlier_B = 0, 0, 0, 0
     
     while True:
         img_A = ''
@@ -131,7 +138,7 @@ if __name__ == "__main__":
                 A = A.astype('float32') / 255.
                 output = model.predict(A)
                 answer_A = output['data']['is_outlier'][0]
-                if answer_A = 1:
+                if answer_A == 1:
                     outlier_A += 1
                     Relay_A.state(0, on=True)
                     sleep(0.01)
@@ -150,7 +157,7 @@ if __name__ == "__main__":
                 B = B.astype('float32') / 255.
                 output = model.predict(B)
                 answer_B = output['data']['is_outlier'][0]
-                if answer_B = 1:
+                if answer_B == 1:
                     outlier_B += 1
                     Relay_B.state(0, on=True)
                     sleep(0.01)
