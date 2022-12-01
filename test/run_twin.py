@@ -30,32 +30,40 @@ from pypylon import pylon
 from multiprocessing import Process, Queue
 
 class Tray:
-    def __init__(self, line, camera_name, Relay_address):
+    def __init__(self, line, camera_name, Relay_address, Queue):
 
+      self.line = line
       self.camera_name = camera_name
       self.Relay_address = Relay_address
       self.Relay = Relay(path=self.Relay_address)
+      self.Queue = Queue
       
       self.total_num = 0
       self.reject_num = 0
+
+      while True:
+          self.load_camera()
+          self.load_model()
+          self.get_img()
+          self.predict()
       
-      self.load_camera()
-      self.load_model()
-      self.get_img()
-      self.predict()
-      
-      num_display = 'Total : ' + str(self.total_num) + ' / ' + ' Reject : ' + str(self.reject_num)
-      self.img = cv2.putText(self.img, num_display, (0, 0), cv2.FONT_HERSHEY_PLAIN, 2, (0,0,0), 1)
-      cv2.imshow(line, self.img)
-      if line == 'A':
-          cv2.moveWindow(line, 300, 500)
-      else:
-          cv2.moveWindow(line, 1100, 500)
-                         
-      k = cv2.waitKey(0)
- 
-# 종료 Queue 설정하기, 
-      
+          num_display = 'Total : ' + str(self.total_num) + ' / ' + ' Reject : ' + str(self.reject_num)
+          self.img = cv2.putText(self.img, num_display, (0, 0), cv2.FONT_HERSHEY_PLAIN, 2, (0,0,0), 1)
+          cv2.imshow(line, self.img)
+          if self.line == 'A':
+              cv2.moveWindow(line, 300, 500)
+          else:
+              cv2.moveWindow(line, 1100, 500)
+
+          k = cv2.waitKey(0) & 0xFF
+          
+          if k == 27:
+              self.Queue.put('OFF')
+              break
+
+      self.cameras.Close()
+      cv2.destroyAllWindows()
+              
     def load_camera(self):
         maxCamerasToUse = 1
         tlFactory = pylon.TlFactory.GetInstance()
@@ -90,10 +98,11 @@ class Tray:
             self.img = img_resize
             self.total_num += 1
         except:
+            print("self.img is NOT CAPTURED...1")
             pass
           
     def predict(self):
-        if self.img is not None:
+        try:
             img_resize = cv2.resize(self.img, (64,64), interpolation=cv2.INTER_LINEAR)
             I = img_resize.reshape((1,) + img_resize.shape)
             I = I.astype('float32') / 255.
@@ -104,8 +113,11 @@ class Tray:
                Relay.state(0, on=True)
                sleep(0.01)
                Relay.state(0, on=False)
+        except:
+            print("self.img is NOT CAPTURED...2")
+            pass
 
-            
+
 if __name__ == "__main__":
     # 만약 save_foler가 없으면 폴더 만들기
     if not os.path.exists('Reject_img'):
@@ -117,75 +129,30 @@ if __name__ == "__main__":
             dic.append(i['path'])
     print(dic)
 
-    Relay_A = Relay(path=dic[0])
-    Relay_B = Relay(path=dic[1])
+    main = str("Tray Detection")
+    daemun = cv2.imread('./daemun.jpg')
+    
+    queueA, queueB = Queue(), Queue()
+    
+    queueA.put('ON')
+    queueB.put('ON')
+
+    LINE_A = Tray('A', '0', dic[0], queueA)
 
     LINE_A.start()
-    LINE_B.start()
-
     
     while True:
-        img_A = ''
-        img_B = ''
-
-        try:
-            img_A = Img_A.get(timeout=0.000001)
-            print('A Image Loaded...')
-            if img_A is not None:
-                total_A += 1
-                img = cv2.resize(img_A, (64,64), interpolation=cv2.INTER_LINEAR)
-                A = img_resize.reshape((1,) + img_resize.shape)
-                A = A.astype('float32') / 255.
-                output = model.predict(A)
-                answer_A = output['data']['is_outlier'][0]
-                if answer_A == 1:
-                    outlier_A += 1
-                    Relay_A.state(0, on=True)
-                    sleep(0.01)
-                    Relay_A.state(0, on=False)        
-        except:
-            pass
-
-
-        try:
-            img_B = Img_B.get(timeout=0.000001)
-            print('B Image Loaded...')
-            if img_B is not None:
-                total_B += 1
-                img = cv2.resize(img_B, (64,64), interpolation=cv2.INTER_LINEAR)
-                B = img_resize.reshape((1,) + img_resize.shape)
-                B = B.astype('float32') / 255.
-                output = model.predict(B)
-                answer_B = output['data']['is_outlier'][0]
-                if answer_B == 1:
-                    outlier_B += 1
-                    Relay_B.state(0, on=True)
-                    sleep(0.01)
-                    Relay_B.state(0, on=False)
-        except:
-            pass
-
-        cv2.imshow('A', Img_A)
-        cv2.moveWindow('A', 300, 500)
-        cv2.imshow('B', Img_B)
-        cv2.moveWindow('B', 1180, 500)
-
-        k = cv2.waitKey(1) & 0xFF
-
-        if k == 114: #lowercase r
-          print(f'[A-side] Total : {toal_A}... / Reject : {outlier_A}')
-          print(f'[B-side] Total : {toal_B}... / Reject : {outlier_B}')
-          print('====================')
-          print{'\n Counter Reset!...')
-          total_A, total_B, outlier_A, outlier_B = 0, 0, 0, 0
-
-        if k == 27: #esc
-            Break_A.put('1')
-            Break_B.put('1')
-            Reject_Q.put(None)
+        answer = ''     
+        for i in range(queueA.qsize()):
+            answer = queueA.get()
+            if i == 0:
+                #print(queueA.qsize())
+                if answer == 'ON':
+                    pass
+                    
+        if answer == 'OFF':
+            queueB.put('OFF')
             break
 
     cv2.destroyAllWindows()
-       
- 
-
+    
