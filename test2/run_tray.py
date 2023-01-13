@@ -28,9 +28,11 @@ class Main:
         self.weights = './weights/best.pt'
         self.yaml = './data/tray.yaml'
         self.camera_setting = './camera_setting.pfs'
+        self.img_save_path = '/home/nongshim/Desktop/Reject_imgs'
         
         self.load_network()
         self.load_camera(camera_num)
+        self.make_dir()
         self.Run()
 
     def load_network(self):
@@ -129,8 +131,35 @@ class Main:
         except:
            print('No Image is Captured...')
            pass
-   
+
+    def make_dir(self):
+        dir_path = self.img_save_path
+        
+        if os.path.exists(dir_path + "/" + str(strftime("%Y-%m-%d",localtime()))):
+            dirname_reject = dir_path + "/" + str(strftime("%Y-%m-%d", localtime()))
+        else:
+            try:
+                os.mkdir(dir_path + "/" + str(strftime("%Y-%m-%d",localtime()))
+            except:
+                pass
+            dirname_reject = dir_path + "/" + str(strftime("%Y-%m-%d",localtime()))
+            print("\nThe New Folder For saving Rejected image is Maked...\n")
+        
+        return dirname_reject
+
+    def save_file(self, confidence, img):
+        dirname_reject = self.make_dir()
+        
+        name1 = str(strftime("%H-%M-%S", localtime()))
+        name2 = ".jpg"
+
+        confi = round(float(confidence), 1)
+        name_orig = str('[' + confi + ']') + '_' + name1 + name2
+        
+        cv2.imwrite(os.path.join(dirname_reject, name_orig), img)
+
     def Run(self):
+        self.make_dir()
         while True:
             self.Predict()
             self.Show_Img()
@@ -151,24 +180,14 @@ class Main:
         cv2.destroyAllWindows()
 
 
-    def save_file(self, confidence, img):
-        dirname_reject = self.make_dir()
-
-        name1 = str(strftime("%m-%d-%H-%M", localtime()))
-        name2 = ".jpg"
-
-        confi = round(float(confidence), 1)
-        name_orig = str('[' + confi + ']') + '_' + name1 + name2
-        
-        cv2.imwrite(os.path.join(dirname_reject, name_orig), img)
-
-
 if __name__ == "__main__":
-    # 만약 save_foler가 없으면 폴더 만들기
-    if not os.path.exists('Reject_img'):
-        os.mkdir('Reject_img')
+    # 만약 python이 두개 켜져있다면, 실행 종료
+    Check = []
+    for process in psutil.process_iter():
+       if 'python' in process.name():
+          Check.append(str(process.pid))
 
-    R_relay = Queue()
-
-    Main('A', R_relay)
+    if len(Check) == 1:
+        R_relay = Queue()
+        Main('A', R_relay)
 
