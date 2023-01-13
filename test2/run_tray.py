@@ -18,15 +18,16 @@ class Main:
 
         if self.line == 'A':
             camera_num = 0
-            self.Reject_limit = 97
-            self.save_img_limit = 80
+            self.Reject_limit = 95
+            self.save_img_limit = 70
         elif self.line == 'B':
             camera_num = 1
-            self.Reject_limit = 97
-            self.save_img_limit = 80
+            self.Reject_limit = 95
+            self.save_img_limit = 70
 
-        self.weights = './runs/train/exp5/weights/best.pt'
+        self.weights = './weights/best.pt'
         self.yaml = './data/tray.yaml'
+        self.camera_setting = './camera_setting.pfs'
         
         self.load_network()
         self.load_camera(camera_num)
@@ -47,8 +48,8 @@ class Main:
         for i, self.cam in enumerate(self.cameras):
             self.cam.Attach(tlFactory.CreateDevice(devices[camera_num]))
         self.cameras.Open()
-        #pylon.FeaturePersistence.Load(self.camera_setting, self.cam.GetNodeMap(), True)
-        self.cameras.Close()
+        pylon.FeaturePersistence.Load(self.camera_setting, self.cam.GetNodeMap(), True)
+        #self.cameras.Close()
         self.cameras.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
         self.converter = pylon.ImageFormatConverter()
@@ -56,7 +57,7 @@ class Main:
         self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
 
     def Predict(self):
-        #try:
+        try:
             #이미지를 self.img에 할당하기
             grabResult = self.cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
             image_raw = self.converter.Convert(grabResult)
@@ -96,24 +97,29 @@ class Main:
                     for *xyxy, conf, cls in reversed(det):
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         line = (cls, *xywh, conf)  # label format
+                        self.cls = cls.item()
                         self.confi_int = round(conf.item() * 100)
-                        #print(confi_int)
+                        #print(line)
 
                         if cls.item() == 2 and self.save_img_limit < self.confi_int:
-                            print("Image Saved...")
+                            print("Image Saved...{}".format(self.confi_int))
                             #self.save_file(conf, self.img)
                             if self.Reject_limit < self.confi_int:
                                 self.Reject_num += 1
                                 error_data = 1
                                 print("Outlier Detected...")
                                 #특정 릴레이에 신호를 보내도록 작성
-        #except:
-            #pass
+        except:
+            pass
    
     def Show_Img(self):
         try:
            img = self.img.copy()
-           txt_confi = str(self.confi_int) + '%'
+           if self.cls == 1:
+               cls = 'OK'
+           elif self.cls == 2:
+               cls = 'Reject'          
+           txt_confi = cls + ' : ' + str(self.confi_int) + '%'
            cv2.putText(img, txt_confi, (20,70), cv2.FONT_HERSHEY_SIMPLEX, 2, (255,255,0), 2)
            cv2.imshow(self.line, img)
            if self.line == 'A':
