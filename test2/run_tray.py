@@ -28,7 +28,7 @@ class Main:
         self.weights = './weights/best.pt'
         self.yaml = './data/tray.yaml'
         self.camera_setting = './camera_setting.pfs'
-        self.img_save_path = '/home/nongshim/Desktop/Reject_imgs'
+        self.img_save_path = '/home/nongshim/Desktop/Reject_Image'
         
         self.load_network()
         self.load_camera(camera_num)
@@ -105,7 +105,7 @@ class Main:
 
                         if cls.item() == 2 and self.save_img_limit < self.confi_int:
                             print("Image Saved...{}".format(self.confi_int))
-                            #self.save_file(conf, self.img)
+                            self.save_file()
                             if self.Reject_limit < self.confi_int:
                                 self.Reject_num += 1
                                 error_data = 1
@@ -153,14 +153,14 @@ class Main:
         
         return dirname_reject
 
-    def save_file(self, confidence, img):
+    def save_file(self):
         dirname_reject = self.make_dir()
         
-        name1 = str(strftime("%H-%M-%S", localtime()))
+        name1 = str(time.strftime("%H-%M-%S", time.localtime()))
         name2 = ".jpg"
 
-        confi = round(float(confidence), 1)
-        name_orig = str('[' + confi + ']') + '_' + name1 + name2
+        confi = round(float(self.confi_int), 1)
+        name_orig = str('[' + str(confi) + ']') + '_' + name1 + name2
         
         cv2.imwrite(os.path.join(dirname_reject, name_orig), img)
 
