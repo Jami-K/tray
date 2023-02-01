@@ -60,7 +60,7 @@ class Main:
 
     def Predict(self):
         try:
-            #이미지를 self.img에 할당하기
+            """ 이미지를 self.img에 할당하기 """
             grabResult = self.cameras.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
             image_raw = self.converter.Convert(grabResult)
             img_raw = image_raw.GetArray()
@@ -70,7 +70,7 @@ class Main:
                 
             gn = torch.tensor(self.img.shape)[[1,0,1,0]]
             self.Total_num += 1
-            #YOLO 프로그램을 불러와서 목표물 탐색하기
+            """ YOLO 프로그램을 불러와서 목표물 탐색하기 """
             windows, dt = [], (Profile(), Profile(), Profile())
 
             with dt[0]:
@@ -119,11 +119,17 @@ class Main:
            img = self.img.copy()
            if self.cls == 1:
                cls = 'OK'
+               txt_clr = (255,255,0)
            elif self.cls == 2:
-               cls = 'Reject'          
+               cls = 'Reject'
+               txt_clr = (0,0,255)
            txt_confi = cls + ' : ' + str(self.confi_int) + '%'
-           cv2.putText(img, txt_confi, (20,70), cv2.FONT_HERSHEY_SIMPLEX, 2, (255,255,0), 2)
+           cv2.putText(img, txt_confi, (20,70), cv2.FONT_HERSHEY_SIMPLEX, 2, txt_clr, 2)
            cv2.imshow(self.line, img)
+           
+           cv2.createTrackbar ('Reject', self.line, self.Reject_limit, 100, onChange)
+           self.Reject_limit = cv2.getTrackbarPos('Reject', self.line)
+           
            if self.line == 'A':
                cv2.moveWindow(self.line, 300, 500)
            elif self.line == 'B':
@@ -179,6 +185,8 @@ class Main:
         self.cameras.StopGrabbing()
         cv2.destroyAllWindows()
 
+def onChange():
+    pass
 
 if __name__ == "__main__":
     # 만약 python이 두개 켜져있다면, 실행 종료
