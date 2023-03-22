@@ -37,6 +37,7 @@ class Main:
         self.Run()
 
     def load_network(self):
+        """ YOLO 모델 선언 """
         device = select_device('')
         self.model = DetectMultiBackend(self.weights, device=device, dnn=False, data=self.yaml, fp16=False)
         self.stride, self.names, self.pt = self.model.stride, self.model.names, self.model.pt
@@ -61,6 +62,7 @@ class Main:
 
     
     def make_dir(self):
+        """ 폴더 생성 후 경로 반환 """
         dir_path = self.img_save_path
         
         if os.path.exists(dir_path + "/" + str(time.strftime("%Y-%m-%d",time.localtime()))):
@@ -75,8 +77,8 @@ class Main:
         
         return dirname_reject
      
-    def save_file(self):
-    
+    def save_file(self, img):
+        """ 이미지 저장 """
         dirname_reject = self.make_dir()
 
         name1 = str(time.strftime("%m-%d-%H-%M", time.localtime()))
@@ -85,7 +87,7 @@ class Main:
         name_orig = str('[' + str(confi) + ']') + '_' + self.line + '_' + name1 + name2
         #print(name_orig)
         
-        cv2.imwrite(os.path.join(dirname_reject, name_orig), self.img)
+        cv2.imwrite(os.path.join(dirname_reject, name_orig), img)
 
 
     def put_queue(self, error_data):
@@ -103,6 +105,7 @@ class Main:
 
             gn = torch.tensor(self.img.shape)[[1,0,1,0]]
             self.Total_num += 1
+            
             """ YOLO 프로그램을 불러와서 목표물 탐색하기 """
             windows, dt = [], (Profile(), Profile(), Profile())
 
@@ -138,22 +141,23 @@ class Main:
 
                         if cls.item() == 2 and self.save_img_limit < self.confi_int:
                             #print("Image Saved...{}".format(self.confi_int))
-                            self.save_file()
-                            if self.Reject_limit < self.confi_int:
-                                self.Reject_num += 1
-                                error_data = [self.line, 'reject']
-                                print("{} : Outlier Detected...{}".format(self.line,self.confi_int)
-                                #특정 릴레이에 신호를 보내도록 작성
-                                self.put_queue(error_data)
-                                img0 = self.img.copy()
-                                r_time = "["+str(self.confi_int)+"%]"+str(time.strftime("%H:%M:%S",time.localtime()))
-                                cv2.putText(img0, r_time, (20,70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,0), 2)
-                                self.rr_img = cv2.resize(img0, (400, 300), interpolation=cv2.INTER_LINEAR)
+                            self.save_file(self.img)
+                        if cls.item() == 2 and self.Reject_limit < self.confi_int:
+                            self.Reject_num += 1
+                            error_data = [self.line, 'reject']
+                            print("{} : Outlier Detected...{}".format(self.line,self.confi_int)
+                            #특정 릴레이에 신호를 보내도록 작성
+                            self.put_queue(error_data)
+                            img0 = self.img.copy()
+                            r_time = "["+str(self.confi_int)+"%]"+str(time.strftime("%H:%M:%S",time.localtime()))
+                            cv2.putText(img0, r_time, (20,70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,0), 2)
+                            self.rr_img = cv2.resize(img0, (400, 300), interpolation=cv2.INTER_LINEAR)
         except:
             #self.img = np.zeros((494,659,1),np.uint8)
             pass
    
     def Show_Img(self):
+        """ 화면 내 이미지 출력 """
         try:
            img = self.img.copy()
            if self.cls == 1:
@@ -180,6 +184,7 @@ class Main:
            pass
 
     def Show_RR(self):
+        """ 최근 리젝트된 이미지 출력 """
         rr_name = str(self.line) + ' reject'
         try:
             cv2.imshow(rr_name, self.rr_img)
@@ -191,9 +196,9 @@ class Main:
             pass
                 
     def Run(self):
-        #self.img_save_path = self.make_dir()
+        """ 메인 프로그램 구동 """
         while True:
-        
+
             try:
                 quit = self.queue.get(timeout=0.001)
                 #print(quit)
@@ -207,10 +212,10 @@ class Main:
             k = cv2.waitKey(1) & 0xFF
         
             if k == 114: #lowercase r
-                print("=====================")
+                print("=================================")
                 print("\n{} | Total : {} ... / Outlier : {} ...\n".format(self.line, self.Total_num, self.Reject_num))
                 print("Reset Completed...")
-                print("=====================\n")
+                print("=================================\n")
                 self.Total_num = 0
                 self.Reject_num = 0
         
@@ -246,6 +251,7 @@ class Reject_sys:
         """ 리젝트까지 필요한 시간 """
         self.standby_time_A = int(4.2 / self.Time_out)
         self.standby_time_B = int(4.0 / self.Time_out)
+        
         self.T_A = [0] * (self.reject_need_time + self.standby_time_A)
         self.T_B = [0] * (self.reject_need_time + self.standby_time_B)
 
@@ -264,7 +270,8 @@ class Reject_sys:
                 answer_ = self.queue.get()
                 if i == 0:
                     answer = answer_
-                    
+            
+            """ Queue에서 받은 내용을 할당 """
             if answer is not None:
                 #print("Now answer is {}".format(answer[0]))
                 if answer[0] == 'A' and answer[1] == 'reject':
@@ -285,9 +292,9 @@ class Reject_sys:
                         ng_question_B = 'ng'
                     initial_B = 0
                    
-            
             self.relay_off_cal_time()
-            
+      
+            """ Queue에서 받지 못하였다면 할당 """
             if ng_question_A == 'ok':
                 self.T_A = self.time_traveler('A', 0, 0)
                 initial_A += 1
@@ -299,6 +306,7 @@ class Reject_sys:
             if initial_A == 100:
                 initial_A = 0
             
+            """ 가장 마지막 자리에 오면 신호 출력 """
             if self.T_A[len(self.T_A) - 1] == 1:
                 self.state(1)
             if self.T_B[len(self.T_B) - 1] == 1:
@@ -306,15 +314,6 @@ class Reject_sys:
                 
             if answer is None:
                 break
-
-    def time_traveler(self, line, location, passs):
-        if line == 'A':
-            temp = self.T_A
-        else:
-            temp = self.T_B
-        temp = temp[:-1]
-        temp.insert(location, passs)
-        return temp
 
     def relay_off_cal_time(self):
         """ 릴레이가 켜져있다면, 일정 시간 이상 초과 되었을 시 릴레이 끄기 """
@@ -381,7 +380,7 @@ class Reject_sys:
 
 
 if __name__ == "__main__":
-    # 만약 python이 두개 켜져있다면, 실행 종료
+    """ 만약 python이 두개 켜져있다면, 실행 종료 """
     Check = []
     for process in psutil.process_iter():
        if 'python' in process.name():
