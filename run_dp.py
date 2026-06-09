@@ -1,14 +1,15 @@
-import cv2, os, hid, time, psutil
+import cv2, os, hid, time, psutil, shutil
 import numpy as np
-import properties
-
+from datetime import datetime, timedelta
 from detect import *
 from utils.augmentations import letterbox
-from pypylon import pylon
+
 from tqdm import tqdm
 from relay import Relay
+from img_grab import Camera
 from multiprocessing import Process, Queue
 from screeninfo import get_monitors
+from properties import A as config_A, B as config_B
 
 
 class dp_window:
@@ -20,10 +21,11 @@ class dp_window:
         self.quit_switch = 0 #프로그램 종료 여부
         self.now = 'off' #프로그램 작동 여부
 
-        global queueA, queueB, queueR, queueA_img, queueB_img, queueA_off, queueB_off
+        global queueA, queueB, queueR, queueA_img, queueB_img, queueA_off, queueB_off, queue_relay_status
         queueA, queueB, queueR = Queue(), Queue(), Queue() # [라인명, 불량여부]
         queueA_img, queueB_img = Queue(), Queue()
         queueA_off, queueB_off = Queue(), Queue()
+        queue_relay_status = Queue()
 
         self.x_max, self.y_max = self.screen_frame() #모니터 화면을 크기를 가져온다 (1920, 1080)
         self.y_max = int(self.y_max * 0.90) #상부 시작파일 바의 크기를 감안하여 축소함
@@ -33,28 +35,33 @@ class dp_window:
 
         self.reject_switch_A = 0 #A기 리젝트 미작동 여부
         self.reject_switch_B = 0 #B기 리젝트 미작동 여부
-        
+
+        self.cam_status_A = 'error'
+        self.cam_status_B = 'error'
+        self.relay_status = False
+
         #이미지 좌표 설정
-        x_operateA, y_operateA, x_operateB, y_operateB = int(self.x_max*0.030), int(self.y_max*0.122), int(self.x_max*0.400), int(self.y_max*0.122) #리젝트 작동여부 좌표
         x_imgA, y_imgA, x_imgB, y_imgB = int(self.x_max*0.030), int(self.y_max*0.220), int(self.x_max*0.400), int(self.y_max*0.220) #카메라 사진 좌표
         x_outputA, y_outputA, x_outputB, y_outputB = int(self.x_max*0.030), int(self.y_max*0.740), int(self.x_max*0.400), int(self.y_max*0.740) #검사결과 좌표
         xa_tback, ya_tback, xb_tback, yb_tback = int(self.x_max*0.030), int(self.y_max*0.850), int(self.x_max*0.400), int(self.y_max*0.850) #현황판 좌표
         xa_total, ya_total, ya_reject, xb_total = int(self.x_max * 0.132), int(self.y_max*0.890), int(self.y_max*0.955), int(self.x_max * 0.506) #현황판 항목 좌표
         x_rimg, y_rimg, x_rtext, y_rtext = int(self.x_max*0.760), int(self.y_max*0.400), int(self.x_max*0.770), int(self.y_max*0.430) #최근 리젝트 이미지 좌표
         r_color = (255,255,0) #리젝트에 표기되는 글자 색상
+
+        #I/O 상태 표시 좌표 (우측 흰색 패널 하단)
+        x_status_text = int(self.x_max * 0.770)
+        x_status_dot  = int(self.x_max * 0.955)
+        y_status_cam_a = int(self.y_max * 0.840)
+        y_status_cam_b = int(self.y_max * 0.895)
+        y_status_relay = int(self.y_max * 0.950)
         
         #이미지 크기 결정
-        w_operate, h_operate = int(self.x_max*0.302), int(self.y_max*0.090) # (580, )
         w_img, h_img = int(self.x_max*0.302), int(self.y_max*0.508) # (580, 494)
         w_bar, h_bar = int(self.x_max*0.302), int(self.y_max*0.103) # (580, 100)
         w_total, h_total = int(self.x_max*0.302), int(self.y_max*0.140) # (580, 136)
         
         #배경에 들어갈 이미지 정의
         self.background = cv2.resize(cv2.imread('./display/background.png'), (self.x_max, self.y_max))
-        self.A_operate = cv2.resize(cv2.imread('./display/A-run.png'), (w_operate, h_operate))
-        self.B_operate = cv2.resize(cv2.imread('./display/B-run.png'), (w_operate, h_operate))
-        self.A_stop = cv2.resize(cv2.imread('./display/A-stop.png'), (w_operate, h_operate))
-        self.B_stop = cv2.resize(cv2.imread('./display/B-stop.png'), (w_operate, h_operate))
         self.img_ok = cv2.resize(cv2.imread('./display/OK.png'), (w_bar, h_bar))
         self.img_reject = cv2.resize(cv2.imread('./display/Reject.png'), (w_bar, h_bar))
         self.img_waiting = cv2.resize(cv2.imread('./display/waiting.png'), (w_bar, h_bar))
@@ -62,18 +69,16 @@ class dp_window:
         self.final_window = self.background
 
         #멀티 프로세싱 선언
-        #A = Process(target=Main, args=('A', queueA, queueA_img, queueA_off,))
-        #B = Process(target=Main, args=('B', queueB, queueB_img, queueB_off,))
-        #R = Process(target=Reject_sys, args=(queueR,))
+        A = Process(target=Main, args=('A', queueA, queueA_img, queueA_off,))
+        B = Process(target=Main, args=('B', queueB, queueB_img, queueB_off,))
+        R = Process(target=Reject_sys, args=(queueR, queue_relay_status,))
     
         while True:
             #전체 수량 / 불량 수량 화면 내 표기
             self.total_counter(self.total_num_A, self.total_reject_A, xa_tback, ya_tback, xa_total, ya_total, xa_total, ya_reject)
             self.total_counter(self.total_num_B, self.total_reject_B, xb_tback, yb_tback, xb_total, ya_total, xb_total, ya_reject)
-            
-            #리젝트 가동 여부 화면 내 표기
-            self.run_stop(self.A_operate, self.A_stop, self.B_operate, self.B_stop, x_operateA, y_operateA, x_operateB, y_operateB)
-            
+            self.draw_io_status(x_status_text, x_status_dot, y_status_cam_a, y_status_cam_b, y_status_relay)
+
             cv2.imshow(window_info, self.final_window)
             cv2.moveWindow(window_info, 0, 0)
             
@@ -116,9 +121,9 @@ class dp_window:
                 for i in range(queueA.qsize()):
                     answerA = queueA.get()
                     if i == 0:
-                        #print(queueA.qsize())
                         if answerA is not None:
-                            #print(answerA)
+                            if isinstance(answerA, list) and len(answerA) > 3:
+                                self.cam_status_A = answerA[3]
                             if self.reject_switch_A == 0:
                                 queueR.put(answerA)
                             if answerA[1] == 'ok':
@@ -126,17 +131,22 @@ class dp_window:
                             elif answerA[1] == 'reject':
                                 self.total_num_A += 1
                                 self.total_reject_A += 1
-                
+
                 for i in range(queueB.qsize()):
                     answerB = queueB.get()
                     if i == 0:
-                        #print(queueB.qsize())
-                        if answerB is not None and answerB[1] != 'none':
-                            self.total_num_B += 1
-                            if self.reject_switch_B == 0:
-                                queueR.put(answerB)
-                            if answerB[1] == 'reject':
-                                self.total_reject_B += 1
+                        if answerB is not None:
+                            if isinstance(answerB, list) and len(answerB) > 3:
+                                self.cam_status_B = answerB[3]
+                            if answerB[1] != 'none':
+                                self.total_num_B += 1
+                                if self.reject_switch_B == 0:
+                                    queueR.put(answerB)
+                                if answerB[1] == 'reject':
+                                    self.total_reject_B += 1
+
+                for i in range(queue_relay_status.qsize()):
+                    self.relay_status = queue_relay_status.get()
                                     
                 for i in range(queueA_img.qsize()):
                     img_A = queueA_img.get()
@@ -202,9 +212,8 @@ class dp_window:
         x_ratio = round(x / self.x_max, 3)
         y_ratio = round(y / self.y_max, 3)
 
-        if event == cv2.EVENT_FLAG_RBUTTON:
-            print("Mouse Click! My X is {}, My Y is {}".format(x_ratio, y_ratio))
         if event == cv2.EVENT_FLAG_LBUTTON:
+            #print("Left Mouse Click! My X is {}, My Y is {}".format(x_ratio, y_ratio))
             if y_ratio >= 0.120 and y_ratio <= 0.199: # 각 라인 리젝트 여부 결정
                 if x_ratio >= 0.030 and x_ratio <= 0.330:
                     if self.reject_switch_A == 0:
@@ -265,24 +274,33 @@ class dp_window:
         self.final_window = self.merge_image(self.final_window, self.img_total, x_back, y_back)
         cv2.putText(self.final_window, str(total_num), (x_total, y_total), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,0), 3)
         cv2.putText(self.final_window, str(reject_num), (x_reject, y_reject), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,0), 3)
- 
-    def run_stop(self, img_runA, img_stopA, img_runB, img_stopB, xa, ya, xb, yb):
-        if self.reject_switch_A == 0: # 리젝트 가동 중
-            self.final_window = self.merge_image(self.final_window, img_runA, xa, ya)
-        else:
-            self.final_window = self.merge_image(self.final_window, img_stopA, xa, ya)
-        if self.reject_switch_B == 0:
-            self.final_window = self.merge_image(self.final_window, img_runB, xb, yb)
-        else:
-            self.final_window = self.merge_image(self.final_window, img_stopB, xb, yb)
-        
- 
+    
     def show_rr(self, r_img, answer, xi, yi, xt, yt, color): #리젝트 이미지를 화면에 보여줌
-        rr_img = cv2.resize(r_img, (250, 250))
+        rr_img = cv2.resize(r_img, (400, 400))
         self.final_window = self.merge_image(self.final_window, rr_img, xi, yi)
         text = str(answer[0]) + " Line : " + str(answer[2]) + "%"
         cv2.putText(self.final_window, str(text), (xt, yt), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 3)
-    
+
+    def draw_io_status(self, x_text, x_dot, y_a, y_b, y_relay):
+        color_map = {
+            'ok':           (0, 200, 0),
+            'reconnecting': (0, 200, 200),
+            'error':        (0, 0, 200),
+        }
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        color_a = color_map.get(self.cam_status_A, (0, 0, 200))
+        cv2.putText(self.final_window, 'Camera A', (x_text, y_a), font, 0.7, (0, 0, 0), 2)
+        cv2.circle(self.final_window, (x_dot, y_a - 8), 12, color_a, -1)
+
+        color_b = color_map.get(self.cam_status_B, (0, 0, 200))
+        cv2.putText(self.final_window, 'Camera B', (x_text, y_b), font, 0.7, (0, 0, 0), 2)
+        cv2.circle(self.final_window, (x_dot, y_b - 8), 12, color_b, -1)
+
+        color_relay = (0, 200, 0) if self.relay_status else (0, 0, 200)
+        cv2.putText(self.final_window, 'Relay', (x_text, y_relay), font, 0.7, (0, 0, 0), 2)
+        cv2.circle(self.final_window, (x_dot, y_relay - 8), 12, color_relay, -1)
+
     def reset_counter(self): #전체 / 불량 카운터 리셋
         print("====================================")
         print(" Line  |    Total    /    Reject    ")
@@ -309,25 +327,21 @@ class Main:
 
         self.weights = './weights/230321_best.pt'
         self.yaml = './data/tray.yaml'
-        self.img_save_path = '/home/nongshim/바탕화면/Reject_Image'
         self.img = np.zeros((494,659,3),np.uint8)
         self.error_data = [self.line, 'none', 105]
+        self.cam_ok = False
+        self.cam_state = 'error'
 
-        if self.line == 'A':
-            attribute = properties.A
-            self.Reject_limit = attribute['reject_limit']
-            self.save_img_limit = attribute['save_img_limit']
-            camera_num = attribute['cam_num']
-            self.camera_setting = attribute['camera_setting']
-        elif self.line == 'B':
-            attribute = properties.B
-            self.Reject_limit = attribute['reject_limit']
-            self.save_img_limit = attribute['save_img_limit']
-            camera_num = attribute['cam_num']
-            self.camera_setting = attribute['camera_setting']
-        
+        config = config_A if self.line == 'A' else config_B
+        self.camera_ip = config['camera_ip']
+        self.camera_setting = config['camera_setting']
+        self.Reject_limit = config['reject_limit']
+        self.save_img_limit = config['save_img_limit']
+        self.img_save_path = config['img_save_path']
+
         self.load_network()
-        self.load_camera(camera_num)
+        self._connect_camera_with_retry()
+        self._cleanup_old_images()
         self.Run()
         print("{} Line Process End...".format(self.line))
 
@@ -336,142 +350,179 @@ class Main:
         self.model = DetectMultiBackend(self.weights, device=device, dnn=False, data=self.yaml, fp16=False)
         self.stride, self.names, self.pt = self.model.stride, self.model.names, self.model.pt
 
-    def load_camera(self, camera_num): # 카메라 설정
-        maxCamerasToUse = 1
-        tlFactory = pylon.TlFactory.GetInstance()
-        devices = tlFactory.EnumerateDevices()
+    def load_camera(self):
+        self.cam = Camera(self.camera_ip, self.camera_setting, camera_mode='VIDEO')
 
-        self.cameras = pylon.InstantCameraArray(min(len(devices), maxCamerasToUse))
-        for i, self.cam in enumerate(self.cameras):
-            self.cam.Attach(tlFactory.CreateDevice(devices[camera_num]))
-        self.cameras.Open()
-        pylon.FeaturePersistence.Load(self.camera_setting, self.cam.GetNodeMap(), True)
-        #self.cameras.Close()
-        self.cameras.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
-        self.converter = pylon.ImageFormatConverter()
-        self.converter.OutputPixelFormat = pylon.PixelType_BGR8packed
-        self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
-
-    def make_dir(self): # 폴더 생성 후 경로 반환
-        dir_path = self.img_save_path
-        
-        if os.path.exists(dir_path + "/" + str(time.strftime("%Y-%m-%d",time.localtime()))):
-            dirname_reject = dir_path + "/" + str(time.strftime("%Y-%m-%d", time.localtime()))
-        else:
+    def _connect_camera_with_retry(self):
+        while True:
             try:
-                os.mkdir(dir_path + "/" + str(time.strftime("%Y-%m-%d",time.localtime())))
+                self.load_camera()
+                self.cam_state = 'ok'
+                print("{} Line : 카메라 연결 성공 ({})".format(self.line, self.camera_ip))
+                return
+            except Exception as e:
+                print("{} Line : 카메라 연결 실패 - {}, 2초 후 재시도...".format(self.line, e))
+                time.sleep(2)
+
+    def _reconnect_camera(self):
+        self.cam_state = 'reconnecting'
+        print("{} Line : 카메라 재연결 시도 ({})...".format(self.line, self.camera_ip))
+        self.cam.destroy_cam()
+        while True:
+            try:
+                self.load_camera()
+                self.cam_state = 'ok'
+                print("{} Line : 카메라 재연결 성공".format(self.line))
+                return
+            except Exception as e:
+                print("{} Line : 재연결 실패 - {}, 2초 후 재시도...".format(self.line, e))
+                time.sleep(2)
+            try:
+                if self.queue_off.get(timeout=0.001) == 'off':
+                    return
             except:
                 pass
-            dirname_reject = dir_path + "/" + str(time.strftime("%Y-%m-%d",time.localtime()))
-            print("\nThe New Folder For saving Rejected image is Maked...\n")
-        
+
+    def _cleanup_old_images(self):
+        base_path = os.path.join(self.img_save_path, self.line)
+        if not os.path.exists(base_path):
+            return
+        cutoff = datetime.now() - timedelta(days=365)
+        for folder_name in os.listdir(base_path):
+            folder_path = os.path.join(base_path, folder_name)
+            if not os.path.isdir(folder_path):
+                continue
+            try:
+                folder_date = datetime.strptime(folder_name, "%Y-%m-%d")
+                if folder_date < cutoff:
+                    shutil.rmtree(folder_path)
+                    print("{} Line : 오래된 폴더 삭제 - {}".format(self.line, folder_name))
+            except ValueError:
+                pass  # 날짜 형식이 아닌 폴더는 건드리지 않음
+
+    def make_dir(self): # 폴더 생성 후 경로 반환
+        dirname_reject = os.path.join(
+            self.img_save_path,
+            self.line,
+            datetime.now().strftime("%Y-%m-%d")
+        )
+        os.makedirs(dirname_reject, exist_ok=True)
         return dirname_reject
      
     def save_file(self, img): #이미지 저장
         dirname_reject = self.make_dir()
-        name1 = str(time.strftime("%m-%d-%H-%M", time.localtime()))
-        name2 = ".jpg"
+        now = datetime.now()
+        ms = now.microsecond // 1000
+        timestamp = now.strftime(f"%H-%M-%S-{ms:03d}")
         confi = round(float(self.confi_int), 1)
-        name_orig = str('[' + str(confi) + ']') + '_' + self.line + '_' + name1 + name2
-        #print(name_orig)
-        
-        cv2.imwrite(os.path.join(dirname_reject, name_orig), img)
+        name = f"[{confi}]_{timestamp}.jpg"
+        cv2.imwrite(os.path.join(dirname_reject, name), img)
 
     def put_queue(self, error_data):
-        self.queue.put(error_data)
+        self.queue.put(error_data + [self.cam_state])
 
     def put_queue_img(self, img):
         self.queue_img.put(img)
 
     def Predict(self):
-        try:
-            # 이미지를 self.img에 할당하기
-            grabResult = self.cameras.RetrieveResult(10000, pylon.TimeoutHandling_ThrowException)
-            image_raw = self.converter.Convert(grabResult)
-            img_raw = image_raw.GetArray()
-            image = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
-            self.img = image
-            #print("{} line Image grab...".format(self.line))
+        img_raw, image_rgb, grabResult, grab_on = self.cam.get_img(self.img)
 
-            gn = torch.tensor(self.img.shape)[[1,0,1,0]]
-            
-            # YOLO 프로그램을 불러와서 목표물 탐색하기
-            windows, dt = [], (Profile(), Profile(), Profile())
+        self.cam_ok = (grab_on == 2)
 
-            with dt[0]:
-                img_temp = letterbox(self.img, (640, 640), stride=self.stride, auto=self.pt)[0]
-                img_temp = img_temp.transpose((2, 0, 1))[::-1]
-                img_temp = np.ascontiguousarray(img_temp)
-                img_temp = torch.from_numpy(img_temp).to(self.model.device)
-                img_temp = img_temp.float()
-                img_temp /= 255.
-                if len(img_temp.shape) == 3:
-                    img_temp = img_temp[None]
-                    #print(img_temp.shape)
-
-            with dt[1]:
-                pred = self.model(img_temp, augment=False, visualize=False)
-
-            with dt[2]:
-                pred = non_max_suppression(pred, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, max_det=5)
-                    
-            for i, det in enumerate(pred):  # per image
-                im0 = self.img.copy()
-                if len(det):
-                    for c in det[:, 5].unique():
-                        n = (det[:, 5] == c).sum()  # detections per class
-
-                    for *xyxy, conf, cls in reversed(det):
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        line = (cls, *xywh, conf)  # label format
-                        self.cls = cls.item()
-                        self.confi_int = round(conf.item() * 100)
-                        #print(line)
-                        if cls.item() == 2 and self.save_img_limit < self.confi_int:
-                            #print("Image Saved...{}".format(self.confi_int))
-                            self.save_file(self.img)
-                        if cls.item() == 2 and self.Reject_limit < self.confi_int:
-                            self.error_data = [self.line, 'reject', self.confi_int]
-                            print("{} : Outlier Detected...{}".format(self.line,self.confi_int))
-                        else:
-                            self.error_data = [self.line, 'ok', 105]
-                            
-        except:
+        if not self.cam_ok:
+            self.cam_state = 'error'
             self.img = np.zeros((494,659,3),np.uint8)
             self.error_data = [self.line, 'none', 105]
-            pass
+            if grabResult != 0:
+                grabResult.Release()
+            return
+
+        self.img = image_rgb
+
+        gn = torch.tensor(self.img.shape)[[1,0,1,0]]
+
+        # YOLO 프로그램을 불러와서 목표물 탐색하기
+        windows, dt = [], (Profile(), Profile(), Profile())
+
+        with dt[0]:
+            img_temp = letterbox(self.img, (640, 640), stride=self.stride, auto=self.pt)[0]
+            img_temp = img_temp.transpose((2, 0, 1))[::-1]
+            img_temp = np.ascontiguousarray(img_temp)
+            img_temp = torch.from_numpy(img_temp).to(self.model.device)
+            img_temp = img_temp.float()
+            img_temp /= 255.
+            if len(img_temp.shape) == 3:
+                img_temp = img_temp[None]
+
+        with dt[1]:
+            pred = self.model(img_temp, augment=False, visualize=False)
+
+        with dt[2]:
+            pred = non_max_suppression(pred, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, max_det=5)
+
+        for i, det in enumerate(pred):  # per image
+            im0 = self.img.copy()
+            if len(det):
+                for c in det[:, 5].unique():
+                    n = (det[:, 5] == c).sum()  # detections per class
+
+                for *xyxy, conf, cls in reversed(det):
+                    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                    line = (cls, *xywh, conf)  # label format
+                    self.cls = cls.item()
+                    self.confi_int = round(conf.item() * 100)
+                    if cls.item() == 2 and self.save_img_limit < self.confi_int:
+                        self.save_file(self.img)
+                    if cls.item() == 2 and self.Reject_limit < self.confi_int:
+                        self.error_data = [self.line, 'reject', self.confi_int]
+                        print("{} : Outlier Detected...{}".format(self.line,self.confi_int))
+                    else:
+                        self.error_data = [self.line, 'ok', 105]
+
+        if grabResult != 0:
+            grabResult.Release()
                 
     def Run(self):
-        # 메인 프로그램 구동
+        fail_count = 0
+        RECONNECT_THRESHOLD = 30
+
         while True:
             try:
                 quit = self.queue_off.get(timeout=0.001)
-                #print(quit)
             except:
                 quit = 'on'
-                pass
-            
+
             self.Predict()
             self.put_queue_img(self.img)
             self.put_queue(self.error_data)
-            
+
+            if self.cam_ok:
+                fail_count = 0
+            else:
+                fail_count += 1
+
+            if fail_count >= RECONNECT_THRESHOLD:
+                self._reconnect_camera()
+                fail_count = 0
+
             if quit == 'off':
                 break
-        
-        self.cameras.Close()
-        self.cameras.StopGrabbing()
+
+        self.cam.destroy_cam()
 
 
 class Reject_sys:
-    def __init__(self, Q):
-        self.relay = Relay(idVendor=0x16c0, idProduct=0x05df)
-        self.relay.state(0, False)
-        
-        attributeA = properties.A
-        attributeB = properties.B
-        self.relay_runtime_A = attributeA['relay_runtime']
-        self.relay_runtime_B = attributeB['relay_runtime']
+    def __init__(self, Q, queue_relay_status):
+        try:
+            self.relay = Relay(idVendor=0x16c0, idProduct=0x05df)
+            self.relay.state(0, False)
+            queue_relay_status.put(True)
+        except Exception as e:
+            print("Relay 연결 실패: {}".format(e))
+            self.relay = None
+            queue_relay_status.put(False)
+
+        self.relay_runtime = config_A['relay_runtime']
         self.relay_A = 'off'
         self.relay_B = 'off'
         self.relay_A_time = time.time()
@@ -481,10 +532,10 @@ class Reject_sys:
 
         """ 1개 지나가는데 필요한 시간 """
         self.reject_need_time = int(0.050 / self.Time_out)
-        
+
         """ 리젝트까지 필요한 시간 """
-        self.standby_time_A = int(attributeA['relay_delay'] / self.Time_out)
-        self.standby_time_B = int(attributeB['relay_delay'] / self.Time_out)
+        self.standby_time_A = int(config_A['relay_delay'] / self.Time_out)
+        self.standby_time_B = int(config_B['relay_delay'] / self.Time_out)
         
         self.T_A = [0] * (self.reject_need_time + self.standby_time_A)
         self.T_B = [0] * (self.reject_need_time + self.standby_time_B)
@@ -521,7 +572,7 @@ class Reject_sys:
                 elif answer[0] == 'B' and answer[1] == 'reject':
                     #print("B Reject Queue Arrived...")
                     if self.relay_B =='off':
-                        self.T_B = self.time_traveler('A', 0, 1)
+                        self.T_B = self.time_traveler('B', 0, 1)
                         #print('Reject Signal put...')
                         #print("*"*20)
                         ng_question_B = 'ng'
@@ -540,7 +591,10 @@ class Reject_sys:
                                 
             if initial_A == 100:
                 initial_A = 0
-            
+
+            if initial_B == 100:
+                initial_B = 0
+
             """ 가장 마지막 자리에 오면 신호 출력 """
             if self.T_A[len(self.T_A) - 1] == 1:
                 self.state(1)
@@ -549,31 +603,6 @@ class Reject_sys:
                 
             if answer is None:
                 break
-
-    def relay_off_cal_time(self):
-        """ 릴레이가 켜져있다면, 일정 시간 이상 초과 되었을 시 릴레이 끄기 """
-        if self.relay_A == 'on':
-            if time.time() - self.relay_A_time > self.relay_runtime_A:
-                self.relay.state(1, False)
-                self.relay_A = 'off'
-                
-        if self.relay_B == 'on':
-            if time.time() - self.relay_B_time > self.relay_runtime_B:
-                self.relay.state(2, False)
-                self.relay_B = 'off'
-
-    def state(self, i):
-        """ i 에 해당하는 릴레이가 꺼져 있다면, 가동하고 현재의 시간을 저장 """
-        if i == 1 and self.relay_A == 'off':
-            self.relay.state(1, True)
-            self.relay_A = 'on'
-            self.relay_A_time = time.time()
-            
-        if i == 2 and self.relay_B == 'off':
-            self.relay.state(2, True)
-            self.relay_B = 'on'
-            self.relay_B_time = time.time()
-        
 
     def time_traveler(self, line, location, pass_):
         """ 타임테이블 한칸씩 오른쪽으로 이동시키기 """
@@ -586,23 +615,24 @@ class Reject_sys:
 
         return temp
 
-
     def relay_off_cal_time(self):
         """ 릴레이가 켜져있는 상태이면, 일정 시간 이상이 초과 되었을 시 릴레이 끄기 """
+        if self.relay is None:
+            return
         if self.relay_A == 'on':
-            # print(time.time() - self.relay_A_time)
-            if time.time() - self.relay_A_time > self.relay_runtime_A:
+            if time.time() - self.relay_A_time > self.relay_runtime:
                 self.relay.state(1, False)
                 self.relay_A = 'off'
 
         if self.relay_B == 'on':
-            # print(time.time() - self.relay_A_time)
-            if time.time() - self.relay_B_time > self.relay_runtime_B:
+            if time.time() - self.relay_B_time > self.relay_runtime:
                 self.relay.state(2, False)
                 self.relay_B = 'off'
 
     def state(self, i):
         """ i에 해당되는 릴레이가 꺼져 있으면 가동하고 현재의 시간을 저장 """
+        if self.relay is None:
+            return
         if i == 1 and self.relay_A == 'off':
             self.relay.state(1, True)
             self.relay_A = 'on'
@@ -626,9 +656,6 @@ if __name__ == "__main__":
         print("트레이 비전검사 프로그램 종료")
         time.sleep(2)
     else:
-        print("=========================")
-        print("                         ")
-        print("    중 복   실 행   방 지    ")
-        print("                         ")
-        print("=========================")
+        print("중복 실행 방지")
+        print("가장 쉬운 해결 방법은 컴퓨터 재부팅!")
         time.sleep(2)
