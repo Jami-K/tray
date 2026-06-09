@@ -2,20 +2,22 @@
 
 #A기 설정값입니다
 A = {
-     'cam_num': 1,                               #카메라 번호
+     'camera_ip': '192.168.70.1',                #카메라 IP 주소
      'camera_setting': './camera_settingA.pfs',  #카메라 설정값
-     'reject_limit': 90,     #리젝트 감도(0~100)
+     'reject_limit': 88,     #검사값 감도(0~100)
      'save_img_limit': 80,   #이미지 저장 감도(0~100)
-     'relay_runtime': 0.5,   #릴레이 실행 시간(초)
-     'relay_delay': 4.2      #릴레이 실행까지 걸리는 시간(ms)
+     'relay_runtime': 0.1,   #릴레이 실행 시간(초)
+     'relay_delay': 4.2,     #리젝트 신호까지 걸리는 지연 시간(초)
+     'img_save_path': '/home/nongshim/바탕화면/Reject_Image'  #불량 이미지 저장 경로
 }
 
 #B기 설정값입니다
 B = {
-     'cam_num': 0,                               #카메라 번호
+     'camera_ip': '192.168.80.1',                #카메라 IP 주소
      'camera_setting': './camera_settingB.pfs',  #카메라 설정값
-     'reject_limit': 90,     #리젝트 감도(0~100)
+     'reject_limit': 88,     #검사값 감도(0~100)
      'save_img_limit': 80,   #이미지 저장 감도(0~100)
-     'relay_runtime': 0.5,   #릴레이 실행 시간(초)
-     'relay_delay': 2.3      #릴레이 실행까지 걸리는 시간(ms)
+     'relay_runtime': 0.1,   #릴레이 실행 시간(초)
+     'relay_delay': 2.3,     #리젝트 신호까지 걸리는 지연 시간(초)
+     'img_save_path': '/home/nongshim/바탕화면/Reject_Image'  #불량 이미지 저장 경로
 }
