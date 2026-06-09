@@ -19,13 +19,17 @@ class Camera:
         
         self.cam = None
         
-        if len(devices) > 0:
-            for device in devices:
-                if device.GetIpAddress() == self.camera_ip:
-                    selectedDevice = device
-                    print('Camera_IP :', selectedDevice.GetIpAddress())
-        elif len(devices) == 0:
+        if len(devices) == 0:
             raise pylon.RuntimeException("\n카메라 네트워크 상태 또는 주소를 확인해주세요.")
+
+        for device in devices:
+            if device.GetIpAddress() == self.camera_ip:
+                selectedDevice = device
+                print('Camera_IP :', selectedDevice.GetIpAddress())
+                break
+
+        if selectedDevice is None:
+            raise NameError(f"카메라 IP를 찾을 수 없습니다: {self.camera_ip}")
 
         if selectedDevice is not None:
             try:
@@ -67,19 +71,23 @@ class Camera:
         grab_on = 0 #카메라 인식 초기화
         grabResult = 0
         try:
-            grabResult = self.cam.RetrieveResult(100, pylon.TimeoutHandling_ThrowException) #0.1초 반응없을 시 넘어감 
-            if grabResult.GrabSucceeded():
-                image_raw = self.converter.Convert(grabResult).GetArray()
-                image_rgb = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB)
-                grab_on = 2
-                return image_raw, image_rgb, grabResult, grab_on
-            else :
-                grab_on = 1
-                #print('Can\'t Read the Image')
-        except:
-            grab_on = 0
-            #print('Can\'t Read the Camera')
-        return image_no, image_no, grabResult, grab_on #인식 실패 , 카메라 고장, 센서 미입력 등
+            grabResult = self.cam.RetrieveResult(100, pylon.TimeoutHandling_Return)
+            if grabResult.IsValid():
+                if grabResult.GrabSucceeded():
+                    image_raw = self.converter.Convert(grabResult).GetArray()
+                    image_rgb = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB)
+                    grab_on = 2
+                    return image_raw, image_rgb, grabResult, grab_on
+                else:
+                    grab_on = 1  # grab 실패 (프레임 손상 등)
+            else:
+                if self.cam.IsCameraDeviceRemoved():
+                    grab_on = 0  # 네트워크 고장으로 장치 제거됨
+                else:
+                    grab_on = 1  # 트리거 대기 중 (타임아웃) = 카메라 정상 연결
+        except Exception:
+            grab_on = 0  # 카메라 미연결 또는 심각한 오류
+        return image_no, image_no, grabResult, grab_on
 
     def reset_trigger(self):
         self.cam.UserOutputValue.SetValue(False)
@@ -104,78 +112,3 @@ class Camera:
                 pass
 
             self.cam = None
-
-def create_folder(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-        print(f"폴더가 생성되었습니다: {path}")
-    else:
-        print(f"폴더가 이미 존재합니다: {path}")
-    
-    return path
-
-def Q2save(image, path, name):
-    # 카메라 관련 설정
-    save_path = os.path.join(path, name) + '.jpg'
-    cv2.imwrite(save_path, image)
-    print("Save Image as {}.jpg".format(name))
-
-
-if __name__ == "__main__":
-    camera_ip = '192.168.10.1'
-    camera_setting = './Trigger_X.pfs'
-
-    CAM = Camera(camera_ip, camera_setting, camera_mode='VIDEO')
-    
-    window_name = 'Press Q to start saving Image / Press S to stop / Press R to trigger / ESC = Quit'
-    last_save_time = time.time()
-    last_img_save_number = 0
-    operating = 0
-    
-    dir_path = create_folder('./img_Grab/')
-    
-    CAM.cam.UserOutputValue.SetValue(False) # 카메라 출력 초기화
-    
-    image_no = np.zeros((494,659,3), np.uint8)
-    text_size = cv2.getTextSize('NO IMAGE', cv2.FONT_HERSHEY_PLAIN, 5, 3)[0]
-    cv2.putText(image_no, 'No Image', (int((659 - text_size[0]) / 2), int((494 + text_size[1]) / 2)), 
-                    cv2.FONT_HERSHEY_PLAIN, 5, [225,255,255], 3)
-    
-    maked_img = image_no
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 1318, 988)
-    cv2.imshow(window_name, maked_img)
-    
-    while True:
-        image_raw, maked_img, grabResult, grab_on = CAM.get_img(image_no)
-    
-        if grab_on == 2 and operating == 1:
-            if last_img_save_number < 10:
-                img_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')
-                Q2save(maked_img, dir_path, img_name)
-                last_img_save_number += 1
-            else: pass
-            if time.time() - last_save_time >= 300: # 5분이 지났는지 확인
-                last_img_save_number = 0
-                last_save_time = time.time()
-            else: pass
-            
-        cv2.imshow(window_name, maked_img)
-        cv2.resizeWindow(window_name, 1318, 988)
-        
-        k = cv2.waitKey(1) & 0xFF
-        
-        if k == ord('q'):
-            operating = 1
-        elif k == ord('s'):
-            operating = 0
-        elif k == ord('r'):
-            CAM.cam_trigger()
-        elif k == 27:
-            break
-        
-        if grabResult != 0:
-            grabResult.Release()
-    
-    CAM.destroy_cam()
-    cv2.destroyAllWindows()
