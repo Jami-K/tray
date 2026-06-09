@@ -79,6 +79,9 @@ class dp_window:
             self.total_counter(self.total_num_B, self.total_reject_B, xb_tback, yb_tback, xb_total, ya_total, xb_total, ya_reject)
             self.draw_io_status(x_status_text, x_status_dot, y_status_cam_a, y_status_cam_b, y_status_relay)
 
+            #프로그램 가동 여부 화면 테두리 표기 (25.03.18 update)
+            self.show_onoff()
+
             cv2.imshow(window_info, self.final_window)
             cv2.moveWindow(window_info, 0, 0)
             
@@ -276,10 +279,18 @@ class dp_window:
         cv2.putText(self.final_window, str(reject_num), (x_reject, y_reject), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,0), 3)
     
     def show_rr(self, r_img, answer, xi, yi, xt, yt, color): #리젝트 이미지를 화면에 보여줌
-        rr_img = cv2.resize(r_img, (400, 400))
+        rr_img = cv2.resize(r_img, (250, 250))
         self.final_window = self.merge_image(self.final_window, rr_img, xi, yi)
         text = str(answer[0]) + " Line : " + str(answer[2]) + "%"
         cv2.putText(self.final_window, str(text), (xt, yt), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 3)
+
+    def show_onoff(self): #프로그램 가동 여부 화면 테두리 표기 (25.03.18 update)
+        border_thickness = 5
+        on_color, off_color = (0, 255, 0), (0, 0, 0) # 초록, 검정
+        if self.now == 'on':
+            cv2.rectangle(self.final_window, (0, 0), (self.x_max-1, self.y_max-1), on_color, border_thickness)
+        elif self.now == 'off':
+            cv2.rectangle(self.final_window, (0, 0), (self.x_max-1, self.y_max-1), off_color, border_thickness)
 
     def draw_io_status(self, x_text, x_dot, y_a, y_b, y_relay):
         color_map = {
@@ -361,7 +372,7 @@ class Main:
                 print("{} Line : 카메라 연결 성공 ({})".format(self.line, self.camera_ip))
                 return
             except Exception as e:
-                print("{} Line : 카메라 연결 실패 - {}, 2초 후 재시도...".format(self.line, e))
+                print("{} Line : 카메라 연결 실패 - {}, 10초 후 재시도...".format(self.line, e))
                 time.sleep(2)
 
     def _reconnect_camera(self):
@@ -375,7 +386,7 @@ class Main:
                 print("{} Line : 카메라 재연결 성공".format(self.line))
                 return
             except Exception as e:
-                print("{} Line : 재연결 실패 - {}, 2초 후 재시도...".format(self.line, e))
+                print("{} Line : 재연결 실패 - {}, 10초 후 재시도...".format(self.line, e))
                 time.sleep(2)
             try:
                 if self.queue_off.get(timeout=0.001) == 'off':
@@ -427,9 +438,10 @@ class Main:
     def Predict(self):
         img_raw, image_rgb, grabResult, grab_on = self.cam.get_img(self.img)
 
-        self.cam_ok = (grab_on == 2)
+        self.cam_ok = (grab_on != 0)
 
-        if not self.cam_ok:
+        if grab_on == 0:
+            # 카메라 미연결 / 오류
             self.cam_state = 'error'
             self.img = np.zeros((494,659,3),np.uint8)
             self.error_data = [self.line, 'none', 105]
@@ -437,6 +449,16 @@ class Main:
                 grabResult.Release()
             return
 
+        if grab_on == 1:
+            # 카메라 연결됨, 트리거 대기 중
+            self.cam_state = 'ok'
+            self.error_data = [self.line, 'none', 105]
+            if grabResult != 0:
+                grabResult.Release()
+            return
+
+        # grab_on == 2: 이미지 취득 성공
+        self.cam_state = 'ok'
         self.img = image_rgb
 
         gn = torch.tensor(self.img.shape)[[1,0,1,0]]
@@ -484,7 +506,7 @@ class Main:
                 
     def Run(self):
         fail_count = 0
-        RECONNECT_THRESHOLD = 30
+        RECONNECT_THRESHOLD = 100
 
         while True:
             try:
